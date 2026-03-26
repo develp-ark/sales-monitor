@@ -121,6 +121,7 @@ module.exports = async (req, res) => {
 
     const brands = {};
     for (const b of allBrands) {
+      if (!b) continue;
       const sum7 = sum7Map[b] ?? 0;
       brands[b] = {
         todaySales: todayMap[b] ?? 0,
@@ -264,6 +265,16 @@ module.exports = async (req, res) => {
     });
 
     await Promise.all(periodQueries);
+
+    // ── 방어: null 체크 ──
+    for (const b of allBrands) {
+      if (!brandInsights[b]) brandInsights[b] = {};
+      for (const p of PERIODS) {
+        if (!brandInsights[b][p.key]) {
+          brandInsights[b][p.key] = { topSales: [], oos: [], surgeUp: [], surgeDown: [] };
+        }
+      }
+    }
 
     return res.status(200).json({
       brands,

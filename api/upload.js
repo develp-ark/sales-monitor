@@ -18,21 +18,16 @@ function normalizeHeader(cell) {
     .trim()
     .replace(/^\ufeff/, '');
   const u = s.toLowerCase();
-  const map = {
-    날짜: 'date',
-    브랜드: 'brandCsv',
-    'sku id': 'sku_id',
-    skuid: 'sku_id',
-    sku_id: 'sku_id',
-    'sku명': 'sku_name',
-    sku명: 'sku_name',
-    판매량: 'sales',
-    재고: 'stock',
-    상태: 'status',
-    매출: 'revenue',
-  };
-  if (map[s]) return map[s];
-  if (map[u]) return map[u];
+
+  if (s === '날짜') return 'date';
+  if (s === '브랜드') return 'brandCsv';
+  if (u === 'sku id' || u === 'skuid' || u === 'sku_id') return 'sku_id';
+  if (u === 'sku 명' || u === 'sku명' || u === 'sku_name') return 'sku_name';
+  if (s === '판매량' || s === '출고수량') return 'sales';
+  if (s === '재고' || s === '현재재고수량') return 'stock';
+  if (s === '상태' || s === '발주가능상태') return 'status';
+  if (s === '품절여부') return 'outOfStock';
+
   return s;
 }
 
@@ -89,6 +84,7 @@ function rowFromRecord(rec, fileBrand) {
   const date = toISODate(rec.date);
   const sku_id = rec.sku_id != null ? String(rec.sku_id).trim() : '';
   if (!date || !sku_id) return null;
+
   const brand =
     fileBrand ||
     (rec.brandCsv != null && String(rec.brandCsv).trim()) ||
@@ -97,9 +93,13 @@ function rowFromRecord(rec, fileBrand) {
   const sales = num(rec.sales, 0);
   const stockVal = rec.stock;
   const stock = stockVal === '' || stockVal == null ? null : num(stockVal, 0);
-  const status = rec.status != null ? String(rec.status).trim() : '';
-  const revenue = num(rec.revenue, 0);
-  return { date, brand, sku_id, sku_name, sales, stock, status, revenue };
+
+  let status = rec.status != null ? String(rec.status).trim() : '';
+  if (rec.outOfStock && String(rec.outOfStock).trim().toUpperCase() === 'Y') {
+    status = '품절';
+  }
+
+  return { date, brand, sku_id, sku_name, sales, stock, status, revenue: 0 };
 }
 
 module.exports = async (req, res) => {

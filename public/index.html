@@ -576,15 +576,82 @@
 
   async function uploadFile(file) {
     if (!file) return;
-    const fd = new FormData();
-    fd.append('file', file, file.name);
-    const r = await fetch('/api/upload', { method: 'POST', body: fd });
-    const text = await r.text();
-    let j;
-    try { j = JSON.parse(text); } catch { j = { error: text }; }
-    if (!r.ok) throw new Error(j.error || '업로드 실패');
-    toast(j.message || '업로드 완료');
-    await loadDashboard();
+    const dz = $('#dropzone');
+    const origHtml = dz.innerHTML;
+
+    // 업로드 시작 UI
+    dz.innerHTML = `
+    <div style="text-align:left">
+      <strong>📤 ${escapeHtml(file.name)}</strong> (${(file.size / 1024).toFixed(0)} KB)<br/>
+      <div style="margin:12px 0 8px">
+        <div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden">
+          <div id="uploadBar" style="background:var(--primary);height:100%;width:0%;transition:width 0.3s"></div>
+        </div>
+      </div>
+      <span id="uploadStatus" style="color:var(--muted);font-size:13px">업로드 중…</span>
+    </div>`;
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/upload');
+
+        // 진행률 표시
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const bar = $('#uploadBar');
+            const status = $('#uploadStatus');
+            if (bar) bar.style.width = pct + '%';
+            if (status) {
+              status.textContent = pct < 100
+                ? `업로드 중… ${pct}%`
+                : '서버에서 처리 중… ⏳';
+            }
+          }
+        });
+
+        xhr.onload = () => {
+          let j;
+          try { j = JSON.parse(xhr.responseText); } catch { j = { error: xhr.responseText }; }
+          if (xhr.status >= 200 && xhr.status < 300) resolve(j);
+          else reject(new Error(j.error || '업로드 실패'));
+        };
+        xhr.onerror = () => reject(new Error('네트워크 오류'));
+        xhr.send(fd);
+      });
+
+      // 성공 UI
+      dz.innerHTML = `
+      <div style="text-align:left">
+        <strong style="color:var(--accent)">✅ 업로드 완료!</strong><br/>
+        <span style="font-size:13px;color:var(--muted)">
+          ${escapeHtml(file.name)} · ${escapeHtml(result.fileBrand || '브랜드 미감지')} · <strong>${fmt(result.rows)}행</strong> 반영
+        </span>
+      </div>`;
+
+      toast(result.message || '업로드 완료');
+      await loadDashboard();
+
+      // 3초 후 원래 dropzone 복원
+      setTimeout(() => { dz.innerHTML = origHtml; }, 3000);
+    } catch (err) {
+      // 실패 UI
+      dz.innerHTML = `
+      <div style="text-align:left">
+        <strong style="color:var(--danger)">❌ 업로드 실패</strong><br/>
+        <span style="font-size:13px;color:var(--danger)">${escapeHtml(err.message)}</span><br/>
+        <span style="font-size:12px;color:var(--muted)">파일을 다시 놓거나 CSV 업로드 버튼을 사용하세요.</span>
+      </div>`;
+
+      toast('업로드 실패: ' + err.message);
+
+      // 5초 후 원래 dropzone 복원
+      setTimeout(() => { dz.innerHTML = origHtml; }, 5000);
+    }
   }
 
   $('#btnRefresh').addEventListener('click', () => loadDashboard().catch((e) => toast(e.message)));

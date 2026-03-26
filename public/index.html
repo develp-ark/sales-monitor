@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>판매 모니터링 대시보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --card: #fff;
+      --border: #dadce0;
+      --text: #202124;
+      --muted: #5f6368;
+      --primary: #1a73e8;
+      --primary-hover: #1557b0;
+      --accent: #188038;
+      --danger: #c5221f;
+      --warn: #e37400;
+      --shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 20px 24px 48px; }
+    header.top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    header.top h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+      flex: 1;
+      min-width: 200px;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    button, .file-label {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 16px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      cursor: pointer;
+      color: var(--text);
+    }
+    button.primary, .file-label.primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    button.primary:hover, .file-label.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    button.ghost { background: transparent; }
+    .file-label { display: inline-block; }
+    .file-label input { display: none; }
+    .period {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .period button {
+      border: none;
+      border-radius: 0;
+      border-right: 1px solid var(--border);
+      background: var(--card);
+    }
+    .period button:last-child { border-right: none; }
+    .period button.active {
+      background: #e8f0fe;
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      background: var(--card);
+      color: var(--muted);
+      margin-bottom: 20px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .dropzone.dragover {
+      border-color: var(--primary);
+      background: #e8f0fe;
+      color: var(--primary);
+    }
+    .dropzone strong { color: var(--text); }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--primary);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+      font-size: 13px;
+    }
+    .stat-grid .lbl { color: var(--muted); }
+    .stat-grid .val { font-weight: 600; text-align: right; }
+    section.panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    section.panel h3 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .table-scroll {
+      overflow-x: auto;
+      margin: 0 -4px;
+    }
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      min-width: 640px;
+    }
+    table.data th, table.data td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: right;
+    }
+    table.data th:first-child, table.data td:first-child {
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: #fafafa;
+      z-index: 1;
+      font-weight: 600;
+    }
+    table.data thead th {
+      background: #e8f0fe;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    table.data tbody tr:nth-child(even) td:first-child { background: #f3f6fc; }
+    table.data tbody tr:nth-child(odd) td:first-child { background: #fafafa; }
+    .insights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .insight-block h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .insight-block ul {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 12px;
+    }
+    .insight-block li { margin-bottom: 4px; }
+    .sku-line { cursor: pointer; color: var(--primary); text-decoration: underline; }
+    .watch-table .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: #fef7e0;
+      color: var(--warn);
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(32, 33, 36, 0.5);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--card);
+      border-radius: 8px;
+      max-width: 440px;
+      width: 100%;
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .modal h3 { margin: 0 0 16px; font-size: 17px; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .field input, .field textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    .field textarea { min-height: 72px; resize: vertical; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 18px;
+      background: #323232;
+      color: #fff;
+      border-radius: 4px;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; }
+    .loading { text-align: center; padding: 40px; color: var(--muted); }
+    .err { color: var(--danger); font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <h1>판매 모니터링 대시보드</h1>
+      <div class="toolbar">
+        <label class="file-label primary">
+          <input type="file" id="csvInput" accept=".csv,text/csv" />
+          CSV 업로드
+        </label>
+        <button type="button" class="ghost" id="btnRefresh">새로고침</button>
+        <button type="button" class="ghost" id="btnInit">DB 초기화</button>
+        <div class="period" role="group" aria-label="비교 기간">
+          <button type="button" data-period="7" class="active">7일</button>
+          <button type="button" data-period="14">14일</button>
+          <button type="button" data-period="30">30일</button>
+          <button type="button" data-period="90">3개월</button>
+        </div>
+      </div>
+    </header>
+    <p class="meta" id="subtitle">데이터를 불러오는 중…</p>
+
+    <div class="dropzone" id="dropzone">
+      <strong>CSV 파일을 여기에 놓거나</strong> 위의 «CSV 업로드»를 눌러 쿠팡 판매 데이터를 전송하세요.<br />
+      파일명에 건우·아리코·윰 등이 포함되면 브랜드가 자동 인식됩니다.
+    </div>
+
+    <div id="dashboard">
+      <div class="loading">대시보드 데이터 로딩 중…</div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalFlag" aria-hidden="true">
+    <div class="modal" role="dialog" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">플래그 / 메모</h3>
+      <div class="field">
+        <label>SKU ID</label>
+        <input type="text" id="m_skuId" readonly />
+      </div>
+      <div class="field">
+        <label>SKU명</label>
+        <input type="text" id="m_skuName" />
+      </div>
+      <div class="field">
+        <label>플래그</label>
+        <input type="text" id="m_flag" placeholder="예: 점검, 프로모션" />
+      </div>
+      <div class="field">
+        <label>메모</label>
+        <textarea id="m_memo" placeholder="메모"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="m_cancel">취소</button>
+        <button type="button" class="primary" id="m_save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+(function () {
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+
+  let state = { data: null, period: '7' };
+  let modalCtx = { skuId: '', skuName: '', brand: '' };
+
+  function toast(msg) {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(to.toastT);
+    to.toastT = setTimeout(() => el.classList.remove('show'), 3200);
+  }
+  const to = { toastT: 0 };
+
+  async function api(path, opts) {
+    const r = await fetch(path, { ...opts, headers: { ...(opts && opts.headers) } });
+    const text = await r.text();
+    let json;
+    try { json = text ? JSON.parse(text) : {}; } catch { json = { error: text }; }
+    if (!r.ok) throw new Error(json.error || r.statusText || '요청 실패');
+    return json;
+  }
+
+  async function loadDashboard() {
+    $('#subtitle').textContent = '데이터를 불러오는 중…';
+    const data = await api('/api/dashboard');
+    state.data = data;
+    const ld = data.latestDate;
+    $('#subtitle').textContent = ld
+      ? `최신 데이터 기준일: ${ld} · 최근 90일 구간 반영`
+      : '저장된 판매 데이터가 없습니다. CSV를 업로드하세요.';
+    render();
+  }
+
+  function fmt(n) {
+    if (n == null || !Number.isFinite(n)) return '–';
+    return Number(n).toLocaleString('ko-KR');
+  }
+
+  function render() {
+    const root = $('#dashboard');
+    const d = state.data;
+    if (!d || !d.latestDate) {
+      root.innerHTML = '<section class="panel"><p>데이터가 없습니다. CSV 업로드 후 새로고침 하세요.</p></section>';
+      return;
+    }
+
+    const brands = Object.keys(d.brands || {}).sort();
+    const p = state.period;
+
+    let cardsHtml = '<div class="cards">';
+    for (const b of brands) {
+      const x = d.brands[b];
+      cardsHtml += `
+        <div class="card">
+          <h2>${escapeHtml(b)}</h2>
+          <div class="stat-grid">
+            <span class="lbl">오늘 판매</span><span class="val">${fmt(x.todaySales)}</span>
+            <span class="lbl">7일 합계</span><span class="val">${fmt(x.sum7)}</span>
+            <span class="lbl">일 평균(7일)</span><span class="val">${fmt(Math.round(x.dailyAvg * 10) / 10)}</span>
+            <span class="lbl">SKU 수</span><span class="val">${fmt(x.skuCount)}</span>
+            <span class="lbl">재고 합계</span><span class="val">${fmt(x.stockSum)}</span>
+            <span class="lbl">품절 SKU</span><span class="val">${fmt(x.outOfStockCount)}</span>
+          </div>
+        </div>`;
+    }
+    cardsHtml += '</div>';
+
+    const trendHtml = buildTrendTable(d);
+    const insightsHtml = buildBrandInsights(d, p);
+    const watchHtml = buildWatchInsights(d);
+
+    root.innerHTML = cardsHtml + trendHtml + insightsHtml + watchHtml;
+    bindInsightClicks();
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : String(s);
+    return div.innerHTML;
+  }
+
+  function buildTrendTable(d) {
+    const dates = d.dates || [];
+    const brands = Object.keys(d.dailyTrend || {}).sort();
+    if (!dates.length) return '';
+
+    const last14 = dates.slice(-14);
+    const earlier = dates.slice(0, -14);
+    const weekBuckets = [];
+    for (let i = 0; i < earlier.length; i += 7) {
+      weekBuckets.push(earlier.slice(i, i + 7));
+    }
+
+    const cols = [];
+    for (const dt of last14) cols.push({ type: 'day', label: dt.slice(5), start: dt, end: dt });
+    for (const w of weekBuckets) {
+      if (!w.length) continue;
+      const label = w.length === 1 ? w[0].slice(5) : `${w[0].slice(5)}~${w[w.length - 1].slice(5)}`;
+      cols.push({ type: 'week', label: '주 ' + label, days: w });
+    }
+
+    let thead = '<tr><th>브랜드</th>';
+    for (const c of cols) thead += `<th>${escapeHtml(c.label)}</th>`;
+    thead += '<th>합계(표시구간)</th></tr>';
+
+    let tbody = '';
+    for (const b of brands) {
+      const series = d.dailyTrend[b] || {};
+      let rowSum = 0;
+      let tds = '';
+      for (const c of cols) {
+        let v = 0;
+        if (c.type === 'day') v = series[c.start] || 0;
+        else (c.days || []).forEach((dt) => { v += series[dt] || 0; });
+        rowSum += v;
+        tds += `<td>${fmt(v)}</td>`;
+      }
+      tbody += `<tr><td>${escapeHtml(b)}</td>${tds}<td><strong>${fmt(rowSum)}</strong></td></tr>`;
+    }
+
+    let sumRow = '<tr><td><strong>전체</strong></td>';
+    let grand = 0;
+    for (const c of cols) {
+      let v = 0;
+      for (const b of brands) {
+        const series = d.dailyTrend[b] || {};
+        if (c.type === 'day') v += series[c.start] || 0;
+        else (c.days || []).forEach((dt) => { v += series[dt] || 0; });
+      }
+      grand += v;
+      sumRow += `<td><strong>${fmt(v)}</strong></td>`;
+    }
+    sumRow += `<td><strong>${fmt(grand)}</strong></td></tr>`;
+
+    return `
+      <section class="panel">
+        <h3>일별 판매 추이 · 최근 14일 일자 + 이전 주차 요약</h3>
+        <div class="table-scroll">
+          <table class="data">
+            <thead>${thead}</thead>
+            <tbody>${tbody}${sumRow}</tbody>
+          </table>
+        </div>
+      </section>`;
+  }
+
+  function buildBrandInsights(d, period) {
+    const bi = d.brandInsights || {};
+    const brands = Object.keys(bi).sort();
+    if (!brands.length) return '';
+
+    let html = '<section class="panel"><h3>브랜드 인사이트 · 비교 ' + period + '일</h3>';
+    for (const b of brands) {
+      const block = bi[b][period] || { topSales: [], oos: [], surgeUp: [], surgeDown: [] };
+      html += `<div class="card" style="margin-bottom:16px"><h2 style="border:none;padding:0;margin-bottom:12px">${escapeHtml(b)}</h2>`;
+      html += '<div class="insights-grid">';
+      html += '<div class="insight-block"><h4>TOP 판매</h4><ul>' +
+        (block.topSales.length ? block.topSales.map((x) =>
+          `<li><span class="sku-line" data-sku="${escapeHtml(x.sku_id)}" data-name="${escapeHtml(x.sku_name)}" data-brand="${escapeHtml(b)}">${escapeHtml(x.sku_name || x.sku_id)}</span> · ${fmt(x.sales)}</li>`
+        ).join('') : '<li>–</li>') + '</ul></div>';
+      html += '<div class="insight-block"><h4>품절 · 재고0</h4><ul>' +
+        (block.oos.length ? block.oos.map((x) =>
+          `<li><span class="sku-line" data-sku="${escapeHtml(x.sku_id)}" data-name="${escapeHtml(x.sku_name)}" data-brand="${escapeHtml(b)}">${escapeHtml(x.sku_name || x.sku_id)}</span></li>`
+        ).join('') : '<li>–</li>') + '</ul></div>';
+      html += '<div class="insight-block"><h4>급상승 (전 기간 대비)</h4><ul>' +
+        (block.surgeUp.length ? block.surgeUp.map((x) =>
+          `<li><span class="sku-line" data-sku="${escapeHtml(x.sku_id)}" data-name="${escapeHtml(x.sku_name)}" data-brand="${escapeHtml(b)}">${escapeHtml(x.sku_name || x.sku_id)}</span> · ${fmt(x.cur)} <span style="color:var(--accent)">(+${fmt(x.delta)})</span></li>`
+        ).join('') : '<li>–</li>') + '</ul></div>';
+      html += '<div class="insight-block"><h4>급하락 (전 기간 대비)</h4><ul>' +
+        (block.surgeDown.length ? block.surgeDown.map((x) =>
+          `<li><span class="sku-line" data-sku="${escapeHtml(x.sku_id)}" data-name="${escapeHtml(x.sku_name)}" data-brand="${escapeHtml(b)}">${escapeHtml(x.sku_name || x.sku_id)}</span> · ${fmt(x.cur)} <span style="color:var(--danger)">(${fmt(x.delta)})</span></li>`
+        ).join('') : '<li>–</li>') + '</ul></div>';
+      html += '</div></div>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function buildWatchInsights(d) {
+    const rows = d.insights || [];
+    if (!rows.length) {
+      return '<section class="panel"><h3>워치리스트 (watch=1)</h3><p class="meta">sku_manage에 워치 대상이 없습니다. 플래그 저장 시 SKU가 등록됩니다.</p></section>';
+    }
+    const flags = d.flags || {};
+    const dateTail = (d.dates || []).slice(-7);
+    let thead = '<tr><th>SKU</th><th>플래그</th>';
+    dateTail.forEach((dt) => { thead += `<th>${dt.slice(5)}</th>`; });
+    thead += '<th>90일합</th><th>액션</th></tr>';
+
+    let tbody = '';
+    for (const r of rows) {
+      const f = flags[r.sku_id] || {};
+      const daily = r.dailySales || [];
+      const dates = d.dates || [];
+      const tailVals = dateTail.map((dt) => {
+        const idx = dates.indexOf(dt);
+        return idx >= 0 ? daily[idx] : 0;
+      });
+      let tds = tailVals.map((v) => `<td>${fmt(v)}</td>`).join('');
+      const flagText = (f.flag || r.flag || '').trim();
+      tbody += `<tr>
+        <td><strong>${escapeHtml(r.sku_name || r.sku_id)}</strong><div class="meta" style="margin-top:4px">${escapeHtml(r.sku_id)}</div></td>
+        <td>${flagText ? `<span class="pill" title="${escapeHtml(flagText)}">${escapeHtml(flagText)}</span>` : '–'}</td>
+        ${tds}
+        <td>${fmt(r.sum90)}</td>
+        <td><button type="button" class="ghost edit-flag" data-sku="${escapeHtml(r.sku_id)}" data-name="${escapeHtml(r.sku_name)}">편집</button></td>
+      </tr>`;
+    }
+
+    return `
+      <section class="panel">
+        <h3>워치리스트 상세 (일별 판매 · 최근 7일)</h3>
+        <div class="table-scroll watch-table">
+          <table class="data">
+            <thead>${thead}</thead>
+            <tbody>${tbody}</tbody>
+          </table>
+        </div>
+      </section>`;
+  }
+
+  function bindInsightClicks() {
+    $$('.sku-line').forEach((el) => {
+      el.addEventListener('click', () => openModal(el.dataset.sku, el.dataset.name, el.dataset.brand));
+    });
+    $$('.edit-flag').forEach((el) => {
+      el.addEventListener('click', () => openModal(el.dataset.sku, el.dataset.name, ''));
+    });
+  }
+
+  function openModal(skuId, skuName) {
+    modalCtx = { skuId, skuName };
+    const flags = (state.data && state.data.flags) || {};
+    const f = flags[skuId] || {};
+    $('#m_skuId').value = skuId;
+    $('#m_skuName').value = skuName || f.sku_name || '';
+    $('#m_flag').value = f.flag || '';
+    $('#m_memo').value = f.memo || '';
+    $('#modalFlag').classList.add('open');
+    $('#modalFlag').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeModal() {
+    $('#modalFlag').classList.remove('open');
+    $('#modalFlag').setAttribute('aria-hidden', 'true');
+  }
+
+  async function uploadFile(file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const r = await fetch('/api/upload', { method: 'POST', body: fd });
+    const text = await r.text();
+    let j;
+    try { j = JSON.parse(text); } catch { j = { error: text }; }
+    if (!r.ok) throw new Error(j.error || '업로드 실패');
+    toast(j.message || '업로드 완료');
+    await loadDashboard();
+  }
+
+  $('#btnRefresh').addEventListener('click', () => loadDashboard().catch((e) => toast(e.message)));
+  $('#btnInit').addEventListener('click', async () => {
+    if (!confirm('Turso에 sales / sku_manage 테이블을 생성합니다. 계속할까요?')) return;
+    try {
+      await api('/api/init');
+      toast('DB 초기화 완료');
+    } catch (e) { toast(e.message); }
+  });
+
+  $$('.period button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $$('.period button').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.period = btn.dataset.period;
+      render();
+    });
+  });
+
+  $('#csvInput').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    uploadFile(f).catch((err) => toast(err.message));
+  });
+
+  const dz = $('#dropzone');
+  ;['dragenter', 'dragover'].forEach((ev) => {
+    dz.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dz.classList.add('dragover'); });
+  });
+  ;['dragleave', 'drop'].forEach((ev) => {
+    dz.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); dz.classList.remove('dragover'); });
+  });
+  dz.addEventListener('drop', (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) uploadFile(f).catch((err) => toast(err.message));
+  });
+
+  $('#m_cancel').addEventListener('click', closeModal);
+  $('#modalFlag').addEventListener('click', (e) => { if (e.target.id === 'modalFlag') closeModal(); });
+  $('#m_save').addEventListener('click', async () => {
+    const skuId = $('#m_skuId').value;
+    try {
+      await api('/api/flag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skuId,
+          skuName: $('#m_skuName').value,
+          flag: $('#m_flag').value,
+          memo: $('#m_memo').value,
+        }),
+      });
+      toast('저장되었습니다');
+      closeModal();
+      await loadDashboard();
+    } catch (e) { toast(e.message); }
+  });
+
+  loadDashboard().catch((e) => {
+    $('#dashboard').innerHTML = `<section class="panel"><p class="err">${escapeHtml(e.message)}</p></section>`;
+    $('#subtitle').textContent = '로드 실패';
+  });
+})();
+  </script>
+</body>
+</html>

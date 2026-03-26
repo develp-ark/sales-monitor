@@ -67,7 +67,7 @@ module.exports = async (req, res) => {
     const start90 = addDays(latestDate, -89);
     const dates = dateRangeInclusive(start90, latestDate);
 
-    const [todayAgg, sum7Agg, skuLatest, dailyTrendRows, flagsRows, watchList] = await Promise.all([
+    const [todayAgg, sum7Agg, skuLatest, dailyTrendRows] = await Promise.all([
       db.execute({
         sql: 'SELECT brand, SUM(sales) AS s FROM sales WHERE date = ? GROUP BY brand',
         args: [latestDate],
@@ -77,18 +77,23 @@ module.exports = async (req, res) => {
         args: [addDays(latestDate, -6), latestDate],
       }),
       db.execute({
-        sql: 'SELECT brand, sku_id, sales, stock, status FROM sales WHERE date = ?',
+        sql: 'SELECT brand, sku_id, sku_name, sales, stock, status FROM sales WHERE date = ?',
         args: [latestDate],
       }),
       db.execute({
         sql: 'SELECT brand, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, date',
         args: [start90, latestDate],
       }),
-      db.execute('SELECT sku_id, sku_name, brand, watch, flag, memo FROM sku_manage'),
-      db.execute({
-        sql: 'SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE watch = 1',
-      }),
     ]);
+
+    let flagsRows = { rows: [] };
+    let watchList = { rows: [] };
+    try {
+      flagsRows = await db.execute('SELECT sku_id, sku_name, brand, watch, flag, memo FROM sku_manage');
+      watchList = await db.execute({ sql: 'SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE watch = 1' });
+    } catch (e) {
+      console.log('sku_manage query failed (table may not exist):', e.message);
+    }
 
     const todayMap = Object.fromEntries(todayAgg.rows.map((r) => [r.brand, Number(r.s) || 0]));
     const sum7Map = Object.fromEntries(sum7Agg.rows.map((r) => [r.brand, Number(r.s) || 0]));

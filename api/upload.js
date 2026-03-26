@@ -22,7 +22,8 @@ function normalizeHeader(cell) {
   if (s === '날짜') return 'date';
   if (s === '브랜드') return 'brandCsv';
   if (u === 'sku id' || u === 'skuid' || u === 'sku_id') return 'sku_id';
-  if (u === 'sku 명' || u === 'sku명' || u === 'sku_name') return 'sku_name';
+  // SKU 명 - 공백 유무 모두 처리
+  if (/^sku\s*명$/i.test(s)) return 'sku_name';
   if (s === '판매량' || s === '출고수량') return 'sales';
   if (s === '재고' || s === '현재재고수량') return 'stock';
   if (s === '상태' || s === '발주가능상태') return 'status';
@@ -66,8 +67,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(date, sku_id) DO UPDATE SET
   brand = excluded.brand,
   sku_name = excluded.sku_name,
-  sales = excluded.sales,
-  stock = excluded.stock,
+  sales = sales.sales + excluded.sales,
+  stock = CASE WHEN excluded.stock IS NOT NULL THEN excluded.stock ELSE sales.stock END,
   status = excluded.status,
   revenue = excluded.revenue`;
 

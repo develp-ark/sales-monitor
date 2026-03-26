@@ -39,20 +39,17 @@ function pickColumns(header) {
 function toISODate(v) {
   if (v == null || v === '') return null;
   const s = String(v).trim().replace(/\./g, '-').replace(/\//g, '-');
+
+  // 8자리 숫자: 20260325 → 2026-03-25
+  const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m8) return `${m8[1]}-${m8[2]}-${m8[3]}`;
+
   const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) {
-    const y = m[1];
-    const mo = m[2].padStart(2, '0');
-    const d = m[3].padStart(2, '0');
-    return `${y}-${mo}-${d}`;
-  }
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+
   const m2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
-  if (m2) {
-    const mo = m2[1].padStart(2, '0');
-    const d = m2[2].padStart(2, '0');
-    const y = m2[3];
-    return `${y}-${mo}-${d}`;
-  }
+  if (m2) return `${m2[3]}-${m2[1].padStart(2, '0')}-${m2[2].padStart(2, '0')}`;
+
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 

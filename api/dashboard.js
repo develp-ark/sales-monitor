@@ -38,8 +38,10 @@ module.exports = async (req, res) => {
   try {
     const db = getDb();
     const maxRow = await db.execute('SELECT MAX(date) AS d FROM sales');
-    const latestDate = maxRow.rows[0]?.d ?? null;
-    if (!latestDate) {
+    const rawLatest = maxRow.rows[0]?.d ?? null;
+
+    // ── 데이터 없음 또는 유효하지 않은 날짜 처리 ──
+    if (!rawLatest || String(rawLatest).trim() === '') {
       return res.status(200).json({
         brands: {},
         insights: [],
@@ -48,6 +50,17 @@ module.exports = async (req, res) => {
         latestDate: null,
         flags: {},
         brandInsights: {},
+      });
+    }
+
+    // 날짜 형식 정규화
+    const latestDate = String(rawLatest).trim().replace(/\./g, '-').replace(/\//g, '-').slice(0, 10);
+
+    // 유효성 검증
+    const testDate = new Date(`${latestDate}T12:00:00.000Z`);
+    if (isNaN(testDate.getTime())) {
+      return res.status(500).json({
+        error: `Invalid date in DB: "${rawLatest}" → "${latestDate}"`,
       });
     }
 

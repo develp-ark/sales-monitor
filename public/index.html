@@ -261,52 +261,94 @@ function renderDash(){
 
 function renderTrend(){
   if(!D||!D.dates||!D.dates.length) return;
-  var dates = D.dates;
   var brands = Object.keys(D.brands||{});
   var dt = D.dailyTrend || {};
   var dn = ['일','월','화','수','목','금','토'];
 
+  // 날짜 유틸
+  function fmtD(d){return d.toISOString().slice(0,10);}
+  function addD(iso,n){var x=new Date(iso+'T12:00:00Z');x.setUTCDate(x.getUTCDate()+n);return fmtD(x);}
+  function dayOfWeek(iso){return new Date(iso+'T12:00:00Z').getUTCDay();}
+
+  var today = D.latestDate || D.dates[D.dates.length-1];
+  var todayDow = dayOfWeek(today); // 0=일 ~ 6=토
+
+  // 이번 주 일요일
+  var thisWeekSun = addD(today, -todayDow);
+  // 이전 3주 경계
+  var prev1Sun = addD(thisWeekSun, -7);
+  var prev2Sun = addD(thisWeekSun, -14);
+  var prev3Sun = addD(thisWeekSun, -21);
+
+  // 주 날짜 배열 생성 (일~토, 또는 일~오늘)
+  function weekDays(startSun, endDate){
+    var arr=[], cur=startSun;
+    for(var i=0;i<7;i++){
+      if(cur>endDate) break;
+      arr.push(cur);
+      cur=addD(cur,1);
+    }
+    return arr;
+  }
+
+  var thisWeekDays = weekDays(thisWeekSun, today);
+  var prev1Days = weekDays(prev1Sun, addD(thisWeekSun,-1));
+  var prev2Days = weekDays(prev2Sun, addD(prev1Sun,-1));
+  var prev3Days = weekDays(prev3Sun, addD(prev2Sun,-1));
+
+  // 값 조회
+  function val(b,d){return (dt[b]&&dt[b][d])?Number(dt[b][d]):0;}
+
+  // thead
   var hd='<thead><tr><th>날짜</th><th>요일</th>';
-  brands.forEach(function(b){ hd+='<th>'+esc(b)+'</th>'; });
+  brands.forEach(function(b){hd+='<th>'+esc(b)+'</th>';});
   hd+='<th class="tot">합계</th></tr></thead>';
 
   var bd='<tbody>';
-  var recent14=dates.slice(-14);
-  var weekSums={},weekTotal=0,weekCount=0;
-  brands.forEach(function(b){weekSums[b]=0;});
 
-  for(var i=recent14.length-1;i>=0;i--){
-    var d=recent14[i], dp=new Date(d), dw=dn[dp.getDay()], rt=0;
-    bd+='<tr><td>'+d.substring(5)+'</td><td>'+dw+'</td>';
-    brands.forEach(function(b){
-      var v=(dt[b]&&dt[b][d])?Number(dt[b][d]||0):0;
-      bd+='<td>'+num(v)+'</td>'; rt+=v; weekSums[b]+=v;
-    });
-    bd+='<td class="tot">'+num(rt)+'</td></tr>';
-    weekTotal+=rt; weekCount++;
-    if(dp.getDay()===0||i===0){
-      bd+='<tr class="wk"><td colspan="2">소계 ('+weekCount+'일)</td>';
-      brands.forEach(function(b){bd+='<td>'+num(weekSums[b])+'</td>';weekSums[b]=0;});
-      bd+='<td class="tot">'+num(weekTotal)+'</td></tr>';
-      weekTotal=0;weekCount=0;
+  // 일별 행 + 소계
+  function renderWeekBlock(days, label){
+    var sums={}, total=0, count=days.length;
+    brands.forEach(function(b){sums[b]=0;});
+    for(var i=days.length-1;i>=0;i--){
+      var d=days[i], dw=dn[dayOfWeek(d)], rt=0;
+      bd+='<tr><td>'+d.substring(5)+'</td><td>'+dw+'</td>';
+      brands.forEach(function(b){
+        var v=val(b,d); bd+='<td>'+num(v)+'</td>'; rt+=v; sums[b]+=v;
+      });
+      bd+='<td class="tot">'+num(rt)+'</td></tr>';
+      total+=rt;
     }
+    bd+='<tr class="wk"><td colspan="2">'+(label||'소계')+' ('+count+'일)</td>';
+    brands.forEach(function(b){bd+='<td>'+num(sums[b])+'</td>';});
+    bd+='<td class="tot">'+num(total)+'</td></tr>';
   }
 
-  var older=dates.slice(-90,-14);
-  if(older.length>0){
+  // PART 1: 이번 주
+  if(thisWeekDays.length) renderWeekBlock(thisWeekDays, '이번 주');
+  // PART 2: 이전 3주
+  if(prev1Days.length) renderWeekBlock(prev1Days, '이전 1주');
+  if(prev2Days.length) renderWeekBlock(prev2Days, '이전 2주');
+  if(prev3Days.length) renderWeekBlock(prev3Days, '이전 3주');
+
+  // PART 3: 그 이전 주차별 요약
+  var cutoff = prev3Sun; // 이 날짜 미만의 데이터
+  var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
+  if(olderDates.length>0){
     bd+='<tr><td colspan="'+(brands.length+3)+'" style="background:#e8f0fe;text-align:center;font-weight:700;font-size:12px;color:#1a73e8;padding:8px;">── 이전 주차별 요약 ──</td></tr>';
-    var weeks=[],curWeek=null;
-    for(var oi=older.length-1;oi>=0;oi--){
-      var od=older[oi], op=new Date(od), day=op.getDay();
-      if(!curWeek||day===6){
+
+    // 주차 그룹핑 (최신순)
+    var weeks=[], curWeek=null;
+    for(var oi=olderDates.length-1;oi>=0;oi--){
+      var od=olderDates[oi], odow=dayOfWeek(od);
+      if(!curWeek||odow===6){
         if(curWeek) weeks.push(curWeek);
         curWeek={start:od,end:od,days:0,brands:{},total:0};
         brands.forEach(function(b){curWeek.brands[b]=0;});
       }
       curWeek.start=od; curWeek.days++;
       brands.forEach(function(b){
-        var vv=(dt[b]&&dt[b][od])?Number(dt[b][od]||0):0;
-        curWeek.brands[b]+=vv; curWeek.total+=vv;
+        var vv=val(b,od); curWeek.brands[b]+=vv; curWeek.total+=vv;
       });
     }
     if(curWeek&&curWeek.days>0) weeks.push(curWeek);
@@ -314,14 +356,17 @@ function renderTrend(){
     bd+='<tr style="background:#f8f9fa"><th>기간</th><th>일수</th>';
     brands.forEach(function(b){bd+='<th>'+esc(b)+'</th>';});
     bd+='<th>합계</th><th>일평균</th></tr>';
+
     for(var w=0;w<weeks.length;w++){
       var wk=weeks[w], avg=wk.days>0?Math.round(wk.total/wk.days):0;
       bd+='<tr class="wk"><td style="text-align:left">'+wk.end.substring(5)+' ~ '+wk.start.substring(5)+'</td>'
         +'<td style="text-align:center">'+wk.days+'일</td>';
       brands.forEach(function(b){bd+='<td>'+num(wk.brands[b])+'</td>';});
-      bd+='<td class="tot">'+num(wk.total)+'</td><td style="text-align:right;color:#1a73e8;font-weight:700">'+num(avg)+'</td></tr>';
+      bd+='<td class="tot">'+num(wk.total)+'</td>'
+        +'<td style="text-align:right;color:#1a73e8;font-weight:700">'+num(avg)+'</td></tr>';
     }
   }
+
   bd+='</tbody>';
   document.getElementById('tTrend').innerHTML = hd+bd;
 }

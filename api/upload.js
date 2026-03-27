@@ -525,18 +525,24 @@ module.exports = async (req, res) => {
     // ── Google Sheets 동기화 (응답 전에 실행) ──
     const skipSync = req.query && req.query.skipSync === '1';
     let sheetsMsg = '';
-    if (!skipSync && totalRows > 0 && allParsedRows.length > 0) {
+    if (!skipSync) {
       try {
-        const byBrand = {};
-        for (const r of allParsedRows) {
-          if (!byBrand[r.brand]) byBrand[r.brand] = [];
-          byBrand[r.brand].push(r);
-        }
-        for (const [brand, rows] of Object.entries(byBrand)) {
-          await syncBrandSheet(brand, rows);
+        const allBrands = await db.execute(
+          "SELECT DISTINCT brand FROM sales WHERE brand != ''"
+        );
+        for (const bRow of allBrands.rows) {
+          const brandName = bRow.brand;
+          const brandData = await db.execute({
+            sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
+            args: [brandName]
+          });
+          const rows = brandData.rows.map(r => ({
+            date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
+            sales: Number(r.sales)||0, stock: r.stock, status: r.status
+          }));
+          await syncBrandSheet(brandName, rows);
         }
 
-        // daily_trend: DB에서 전체 브랜드 일별 데이터 조회
         const trendRows = await db.execute(
           'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
         );
@@ -546,6 +552,8 @@ module.exports = async (req, res) => {
           trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
         }
         await syncDailyTrend(trendByBrand);
+
+        console.log('[Sheets] full DB sync complete');
         sheetsMsg = ' + 시트 동기화 완료';
       } catch (e) {
         console.error('[Sheets sync error]', e.message);

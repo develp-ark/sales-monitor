@@ -824,6 +824,23 @@ function detectCsvType(text){
   return 'sales';
 }
 
+function splitCsv(text, maxRows){
+  var lines = text.split('\n');
+  var header = lines[0];
+  var chunks = [];
+  var current = [header];
+  for(var i=1; i<lines.length; i++){
+    if(!lines[i].trim()) continue;
+    current.push(lines[i]);
+    if(current.length - 1 >= maxRows){
+      chunks.push(current.join('\n'));
+      current = [header];
+    }
+  }
+  if(current.length > 1) chunks.push(current.join('\n'));
+  return chunks;
+}
+
 async function handleFiles(files){
   var st=document.getElementById('uploadStatus');
   var total=files.length;
@@ -833,55 +850,77 @@ async function handleFiles(files){
   for(var i=0;i<total;i++){
     var text=await readFileText(files[i]);
     if(detectCsvType(text)==='sku-manage'){
-      skuFiles.push(files[i]);
+      skuFiles.push({name:files[i].name, text:text});
     }else{
-      salesFiles.push(files[i]);
+      salesFiles.push({name:files[i].name, text:text});
     }
   }
 
-  if(st) st.textContent='판매 '+salesFiles.length+'개, SKU관리 '+skuFiles.length+'개 감지';
-
-  var done=0;
-  var totalAll=salesFiles.length+skuFiles.length;
   var totalRows=0;
   var totalImported=0;
+  var step=0;
 
   for(var i=0;i<salesFiles.length;i++){
-    done++;
-    if(st) st.textContent='업로드 중 ('+done+'/'+totalAll+') '+salesFiles[i].name;
-    try{
-      var fd=new FormData();
-      fd.append('file',salesFiles[i]);
-      var r=await fetch('/api/upload',{method:'POST',body:fd});
-      var d=await r.json();
-      totalRows+=(d.rows||0);
-    }catch(e){
-      if(st) st.textContent='오류: '+salesFiles[i].name+' - '+e.message;
-      return;
+    var f=salesFiles[i];
+    var lineCount=f.text.split('\n').filter(function(l){return l.trim()}).length - 1;
+
+    if(lineCount > 800){
+      var chunks=splitCsv(f.text, 800);
+      for(var c=0;c<chunks.length;c++){
+        step++;
+        if(st) st.textContent=f.name+' ('+Math.round((c+1)/chunks.length*100)+'%) 업로드 중...';
+        try{
+          var blob=new Blob([chunks[c]],{type:'text/csv'});
+          var fd=new FormData();
+          fd.append('file',blob,f.name);
+          var r=await fetch('/api/upload',{method:'POST',body:fd});
+          var d=await r.json();
+          totalRows+=(d.rows||0);
+        }catch(e){
+          if(st) st.textContent='오류: '+f.name+' 청크'+(c+1)+' - '+e.message;
+          return;
+        }
+      }
+    }else{
+      step++;
+      if(st) st.textContent='업로드 중... '+f.name;
+      try{
+        var blob=new Blob([f.text],{type:'text/csv'});
+        var fd=new FormData();
+        fd.append('file',blob,f.name);
+        var r=await fetch('/api/upload',{method:'POST',body:fd});
+        var d=await r.json();
+        totalRows+=(d.rows||0);
+      }catch(e){
+        if(st) st.textContent='오류: '+f.name+' - '+e.message;
+        return;
+      }
     }
   }
 
   for(var i=0;i<skuFiles.length;i++){
-    done++;
-    if(st) st.textContent='SKU 등록 중 ('+done+'/'+totalAll+') '+skuFiles[i].name;
+    var f=skuFiles[i];
+    step++;
+    if(st) st.textContent='SKU 등록 중... '+f.name;
     try{
+      var blob=new Blob([f.text],{type:'text/csv'});
       var fd=new FormData();
-      fd.append('file',skuFiles[i]);
+      fd.append('file',blob,f.name);
       var r=await fetch('/api/upload-sku-manage',{method:'POST',body:fd});
       var d=await r.json();
       totalImported+=(d.imported||0);
     }catch(e){
-      if(st) st.textContent='오류: '+skuFiles[i].name+' - '+e.message;
+      if(st) st.textContent='오류: '+f.name+' - '+e.message;
       return;
     }
   }
 
   var msg='완료: ';
-  if(totalRows) msg+=totalRows+'행 판매데이터';
+  if(totalRows) msg+=totalRows.toLocaleString('ko-KR')+'행 판매데이터';
   if(totalRows&&totalImported) msg+=', ';
-  if(totalImported) msg+=totalImported+'개 SKU 등록';
+  if(totalImported) msg+=totalImported.toLocaleString('ko-KR')+'개 SKU 등록';
   if(st) st.textContent=msg;
-  setTimeout(function(){location.reload();},1500);
+  setTimeout(function(){location.reload();},2000);
 }
 
 function readFileText(file){

@@ -178,36 +178,37 @@ module.exports = async (req, res) => {
     req.pipe(bb);
     await done;
 
-    // ── Google Sheets 동기화 (비동기, 에러 무시) ──
+    // ── Google Sheets 동기화 (응답 전에 실행) ──
+    let sheetsMsg = '';
     if (totalRows > 0 && allParsedRows.length > 0) {
-      (async () => {
-        try {
-          const byBrand = {};
-          for (const r of allParsedRows) {
-            if (!byBrand[r.brand]) byBrand[r.brand] = [];
-            byBrand[r.brand].push(r);
-          }
-          for (const [brand, rows] of Object.entries(byBrand)) {
-            await syncBrandSheet(brand, rows);
-          }
-
-          const trendByBrand = {};
-          for (const r of allParsedRows) {
-            if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
-            trendByBrand[r.brand].push({ date: r.date, totalSales: r.sales });
-          }
-          await syncDailyTrend(trendByBrand);
-        } catch (e) {
-          console.error('[Sheets sync error]', e.message);
+      try {
+        const byBrand = {};
+        for (const r of allParsedRows) {
+          if (!byBrand[r.brand]) byBrand[r.brand] = [];
+          byBrand[r.brand].push(r);
         }
-      })();
+        for (const [brand, rows] of Object.entries(byBrand)) {
+          await syncBrandSheet(brand, rows);
+        }
+
+        const trendByBrand = {};
+        for (const r of allParsedRows) {
+          if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
+          trendByBrand[r.brand].push({ date: r.date, totalSales: r.sales });
+        }
+        await syncDailyTrend(trendByBrand);
+        sheetsMsg = ' + 시트 동기화 완료';
+      } catch (e) {
+        console.error('[Sheets sync error]', e.message);
+        sheetsMsg = ' (시트 동기화 실패: ' + e.message + ')';
+      }
     }
 
     return res.status(200).json({
       ok: true,
       rows: totalRows,
       fileBrand: fileBrandFromName,
-      message: `${totalRows.toLocaleString()}행 반영 완료`,
+      message: `${totalRows.toLocaleString()}행 반영 완료${sheetsMsg}`,
     });
   } catch (e) {
     console.error(e);

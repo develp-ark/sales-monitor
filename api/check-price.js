@@ -69,7 +69,23 @@ module.exports = async function handler(req, res) {
     }
 
     if (currentPrice === null) {
-      return res.json({ ok: false, error: 'Could not parse price', sku_id: skuId });
+      const priceArea = html.match(/price[^}]{0,500}/gi) || [];
+      const totalArea = html.match(/total-price[^<]{0,200}/gi) || [];
+      return res.json({
+        ok: false,
+        error: 'Could not parse price',
+        sku_id: skuId,
+        debug: {
+          htmlLength: html.length,
+          statusCode: response.status,
+          hasTotalPrice: html.includes('total-price'),
+          hasSalePrice: html.includes('salePrice'),
+          hasProductPrice: html.includes('product-price'),
+          sample: html.substring(0, 500),
+          priceArea: priceArea.slice(0, 3),
+          totalArea: totalArea.slice(0, 3)
+        }
+      });
     }
 
     const now = new Date().toISOString();

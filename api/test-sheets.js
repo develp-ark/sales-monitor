@@ -1,26 +1,25 @@
 const { google } = require('googleapis');
 
 module.exports = async function handler(req, res) {
-  try {
-    const raw = process.env.GOOGLE_PRIVATE_KEY || '';
-    
-    // 디버그: raw 상태 확인
-    const debug = {
-      rawLength: raw.length,
-      first50: raw.substring(0, 50),
-      last30: raw.substring(raw.length - 30),
-      includesBegin: raw.includes('-----BEGIN'),
-      includesEnd: raw.includes('-----END'),
-    };
+  const raw = process.env.GOOGLE_PRIVATE_KEY || '';
+  
+  const debug = {
+    rawLength: raw.length,
+    first50: raw.substring(0, 50),
+    last30: raw.substring(raw.length - 30),
+    includesBegin: raw.includes('-----BEGIN'),
+    includesEnd: raw.includes('-----END'),
+    rawHasRealNewline: raw.includes('\n'),
+    rawHasLiteralBackslashN: raw.includes('\\n'),
+  };
 
-    // 줄바꿈이 이미 실제 줄바꿈이면 그대로, 아니면 변환
+  try {
     let key = raw;
     if (!raw.includes('\n') && raw.includes('\\n')) {
       key = raw.replace(/\\n/g, '\n');
     }
 
     debug.keyLength = key.length;
-    debug.keyHasNewline = key.includes('\n');
     debug.keyLineCount = key.split('\n').length;
 
     const auth = new google.auth.JWT(
@@ -40,6 +39,6 @@ module.exports = async function handler(req, res) {
 
     res.json({ ok: true, sheetNames, debug });
   } catch (e) {
-    res.json({ ok: false, error: e.message, debug: e.debug || 'see above' });
+    res.json({ ok: false, error: e.message, debug });
   }
 };

@@ -270,7 +270,7 @@ async function syncBrandSheet(brandName, rows) {
     requests.push({
       setBasicFilter: {
         filter: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
+          range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
         }
       }
     });

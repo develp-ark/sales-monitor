@@ -1,4 +1,4 @@
-const Busboy = require('busboy');
+const busboy = require('busboy');
 const { parse } = require('csv-parse/sync');
 const { getDb } = require('../lib/db');
 
@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
   try {
     const chunks = [];
     await new Promise((resolve, reject) => {
-      const bb = new Busboy({ headers: req.headers });
+      const bb = busboy({ headers: req.headers });
       bb.on('file', (name, file) => {
         file.on('data', d => chunks.push(d));
       });

@@ -3,19 +3,30 @@ const { google } = require('googleapis');
 const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
 async function getSheetsAsync() {
-  const key = process.env.GOOGLE_PRIVATE_KEY || '';
+  const raw = process.env.GOOGLE_PRIVATE_KEY || '';
   const email = process.env.GOOGLE_CLIENT_EMAIL || '';
   
-  if (!key || !email) {
-    throw new Error('GOOGLE_PRIVATE_KEY or GOOGLE_CLIENT_EMAIL not set');
+  console.log('[SHEETS AUTH] email:', email.length, 'key:', raw.length, 'hasNewline:', raw.includes('\n'));
+  
+  // test-sheets.js와 동일한 방식
+  let key = raw;
+  if (raw.length > 0 && !raw.includes('\n') && raw.includes('\\n')) {
+    key = raw.replace(/\\n/g, '\n');
   }
   
-  const auth = new google.auth.JWT(email, null, key,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
+  console.log('[SHEETS AUTH] final key length:', key.length, 'lines:', key.split('\n').length);
+  
+  const auth = new google.auth.JWT({
+    email: email,
+    key: key,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  });
+  
   await auth.authorize();
+  console.log('[SHEETS AUTH] authorize success');
   return google.sheets({ version: 'v4', auth });
 }
+
 
 
 async function syncBrandSheet(brandName, rows) {

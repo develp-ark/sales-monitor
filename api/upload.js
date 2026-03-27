@@ -2,32 +2,25 @@ const { google } = require('googleapis');
 
 const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
-function getAuth() {
+let _sheets = null;
+
+async function getSheetsAsync() {
+  if (_sheets) return _sheets;
   let key = process.env.GOOGLE_PRIVATE_KEY || '';
-  const email = process.env.GOOGLE_CLIENT_EMAIL || '';
-  
-  console.log('[AUTH DEBUG] email length:', email.length);
-  console.log('[AUTH DEBUG] key length:', key.length);
-  console.log('[AUTH DEBUG] key has real newline:', key.includes('\n'));
-  console.log('[AUTH DEBUG] key starts with:', key.substring(0, 30));
-  
   if (!key.includes('\n') && key.includes('\\n')) {
     key = key.replace(/\\n/g, '\n');
-    console.log('[AUTH DEBUG] replaced \\n, new length:', key.length);
   }
-  
-  return new google.auth.JWT(
-    email, null, key,
+  const auth = new google.auth.JWT(
+    process.env.GOOGLE_CLIENT_EMAIL, null, key,
     ['https://www.googleapis.com/auth/spreadsheets']
   );
-}
-
-function getSheets() {
-  return google.sheets({ version: 'v4', auth: getAuth() });
+  await auth.authorize();
+  _sheets = google.sheets({ version: 'v4', auth });
+  return _sheets;
 }
 
 async function syncBrandSheet(brandName, rows) {
-  const sheets = getSheets();
+  const sheets = await getSheetsAsync();
   try {
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const exists = meta.data.sheets.some(s => s.properties.title === brandName);
@@ -57,7 +50,7 @@ async function syncBrandSheet(brandName, rows) {
 }
 
 async function syncDailyTrend(brandRows) {
-  const sheets = getSheets();
+  const sheets = await getSheetsAsync()
   const title = 'daily_trend';
   try {
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });

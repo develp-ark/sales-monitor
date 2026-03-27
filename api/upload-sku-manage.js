@@ -3,12 +3,12 @@ const { getDb } = require('../lib/db');
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const { default: Busboy } = require('busboy');
+  const Busboy = require('busboy');
   const { parse } = require('csv-parse/sync');
 
   const chunks = [];
   await new Promise((resolve, reject) => {
-    const bb = Busboy({ headers: req.headers });
+    const bb = new Busboy({ headers: req.headers });
     bb.on('file', (n, file) => { file.on('data', d => chunks.push(d)); });
     bb.on('finish', resolve);
     bb.on('error', reject);

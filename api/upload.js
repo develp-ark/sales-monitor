@@ -523,8 +523,9 @@ module.exports = async (req, res) => {
     await done;
 
     // ── Google Sheets 동기화 (응답 전에 실행) ──
+    const skipSync = req.query && req.query.skipSync === '1';
     let sheetsMsg = '';
-    if (totalRows > 0 && allParsedRows.length > 0) {
+    if (!skipSync && totalRows > 0 && allParsedRows.length > 0) {
       try {
         const byBrand = {};
         for (const r of allParsedRows) {

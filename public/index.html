@@ -862,18 +862,21 @@ async function handleFiles(files){
 
   for(var i=0;i<salesFiles.length;i++){
     var f=salesFiles[i];
+    var isLastSalesFile=(i===salesFiles.length-1);
     var lineCount=f.text.split('\n').filter(function(l){return l.trim()}).length - 1;
 
     if(lineCount > 800){
       var chunks=splitCsv(f.text, 800);
       for(var c=0;c<chunks.length;c++){
+        var isLast=(c===chunks.length-1)&&isLastSalesFile;
         step++;
         if(st) st.textContent=f.name+' ('+Math.round((c+1)/chunks.length*100)+'%) 업로드 중...';
         try{
           var blob=new Blob([chunks[c]],{type:'text/csv'});
           var fd=new FormData();
           fd.append('file',blob,f.name);
-          var r=await fetch('/api/upload',{method:'POST',body:fd});
+          var url=isLast?'/api/upload':'/api/upload?skipSync=1';
+          var r=await fetch(url,{method:'POST',body:fd});
           var d=await r.json();
           totalRows+=(d.rows||0);
         }catch(e){
@@ -888,7 +891,8 @@ async function handleFiles(files){
         var blob=new Blob([f.text],{type:'text/csv'});
         var fd=new FormData();
         fd.append('file',blob,f.name);
-        var r=await fetch('/api/upload',{method:'POST',body:fd});
+        var url=isLastSalesFile?'/api/upload':'/api/upload?skipSync=1';
+        var r=await fetch(url,{method:'POST',body:fd});
         var d=await r.json();
         totalRows+=(d.rows||0);
       }catch(e){

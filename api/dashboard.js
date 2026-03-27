@@ -30,6 +30,8 @@ const PERIODS = [
   { key: '14', days: 14 },
   { key: '30', days: 30 },
   { key: '90', days: 90 },
+  { key: '180', days: 180 },
+  { key: '365', days: 365 },
 ];
 
 module.exports = async (req, res) => {
@@ -67,8 +69,8 @@ module.exports = async (req, res) => {
       });
     }
 
-    const start90 = addDays(latestDate, -89);
-    const dates = dateRangeInclusive(start90, latestDate);
+    const start365 = addDays(latestDate, -364);
+    const dates = dateRangeInclusive(start365, latestDate);
 
     const [todayAgg, sum7Agg, skuLatest, dailyTrendRows] = await Promise.all([
       db.execute({
@@ -85,15 +87,20 @@ module.exports = async (req, res) => {
       }),
       db.execute({
         sql: 'SELECT brand, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, date',
-        args: [start90, latestDate],
+        args: [start365, latestDate],
       }),
     ]);
 
     let flagsRows = { rows: [] };
     let watchList = { rows: [] };
+    let skuManageMap = {};
     try {
-      flagsRows = await db.execute('SELECT sku_id, sku_name, brand, watch, flag, memo FROM sku_manage');
-      watchList = await db.execute({ sql: 'SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE watch = 1' });
+      flagsRows = await db.execute('SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE active = 1');
+      watchList = await db.execute({ sql: 'SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE active = 1' });
+      const smRows = await db.execute('SELECT * FROM sku_manage WHERE active = 1');
+      for (const r of smRows.rows) {
+        skuManageMap[r.sku_id] = r;
+      }
     } catch (e) {
       console.log('sku_manage query failed (table may not exist):', e.message);
     }
@@ -165,7 +172,7 @@ module.exports = async (req, res) => {
       const placeholders = watchIds.map(() => '?').join(',');
       watchSalesRows = await db.execute({
         sql: `SELECT sku_id, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? AND sku_id IN (${placeholders}) GROUP BY sku_id, date`,
-        args: [start90, latestDate, ...watchIds],
+        args: [start365, latestDate, ...watchIds],
       });
     }
 
@@ -302,6 +309,14 @@ module.exports = async (req, res) => {
       }
     } catch (e) { console.error('sheetGids error:', e.message); }
 
+    let skuUrls = {};
+    try {
+      const urlRows = await db.execute('SELECT sku_id, url FROM sku_url_map');
+      for (const r of urlRows.rows) {
+        skuUrls[r.sku_id] = r.url;
+      }
+    } catch (e) { /* table may not exist yet */ }
+
     return res.status(200).json({
       brands,
       insights,
@@ -311,6 +326,8 @@ module.exports = async (req, res) => {
       flags,
       brandInsights,
       sheetGids,
+      skuUrls,
+      skuManageMap,
     });
   } catch (e) {
     console.error(e);

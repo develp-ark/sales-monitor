@@ -535,10 +535,14 @@ module.exports = async (req, res) => {
           await syncBrandSheet(brand, rows);
         }
 
+        // daily_trend: DB에서 전체 브랜드 일별 데이터 조회
+        const trendRows = await db.execute(
+          'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
+        );
         const trendByBrand = {};
-        for (const r of allParsedRows) {
+        for (const r of trendRows.rows) {
           if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
-          trendByBrand[r.brand].push({ date: r.date, totalSales: r.sales });
+          trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
         }
         await syncDailyTrend(trendByBrand);
         sheetsMsg = ' + 시트 동기화 완료';

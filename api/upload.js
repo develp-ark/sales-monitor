@@ -131,8 +131,14 @@ async function syncBrandSheet(brandName, rows) {
   // 9) 최종 데이터: 헤더 + 합계행 + SKU행들
   const allRows = [header, sumRow, ...skuRows];
 
-  // 10) 시트에 쓰기
+  // 10) 시트에 쓰기 + 서식 적용
   try {
+    // 시트 ID 가져오기
+    const metaForId = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const sheetObj = metaForId.data.sheets.find(s => s.properties.title === brandName);
+    const sheetId = sheetObj.properties.sheetId;
+
+    // 값 클리어 후 쓰기
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:ZZ'
     });
@@ -142,9 +148,171 @@ async function syncBrandSheet(brandName, rows) {
       valueInputOption: 'RAW',
       requestBody: { values: allRows }
     });
-    console.log('[Sheets] ' + brandName + ': ' + skuRows.length + ' SKUs, ' + allDates.length + ' dates synced');
+
+    const totalCols = header.length;
+    const totalRows = allRows.length;
+
+    // 서식 요청 배열
+    const requests = [];
+
+    // --- 1행(헤더): 진한 파랑 배경 + 흰색 굵은 글자 + 고정 ---
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.1, green: 0.3, blue: 0.6 },
+            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 }, fontSize: 10 },
+            horizontalAlignment: 'CENTER',
+            verticalAlignment: 'MIDDLE'
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+      }
+    });
+
+    // --- 2행(합계): 연한 노랑 배경 + 굵은 글자 ---
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: totalCols },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
+            textFormat: { bold: true, fontSize: 10 },
+            horizontalAlignment: 'CENTER'
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+      }
+    });
+
+    // --- A~D열(SKU ID, SKU명, 재고, 상태) 헤더 색: 연한 녹색 ---
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 4 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.85, green: 0.93, blue: 0.83 },
+            textFormat: { bold: true, foregroundColor: { red: 0, green: 0, blue: 0 }, fontSize: 10 },
+            horizontalAlignment: 'CENTER'
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+      }
+    });
+
+    // --- 날짜 열 헤더(E~): 연한 파랑 ---
+    if (totalCols > 4) {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 4, endColumnIndex: totalCols },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.82, green: 0.88, blue: 0.97 },
+              textFormat: { bold: true, foregroundColor: { red: 0.1, green: 0.1, blue: 0.5 }, fontSize: 10 },
+              horizontalAlignment: 'CENTER'
+            }
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+        }
+      });
+    }
+
+    // --- 3행~ 데이터 영역: 기본 서식 ---
+    if (totalRows > 2) {
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 1, green: 1, blue: 1 },
+              textFormat: { fontSize: 9 }
+            }
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)'
+        }
+      });
+    }
+
+    // --- 품절 셀 빨간색 (D열 = index 3) ---
+    for (let i = 2; i < totalRows; i++) {
+      const statusVal = allRows[i] && allRows[i][3] ? String(allRows[i][3]) : '';
+      if (statusVal === '품절') {
+        requests.push({
+          repeatCell: {
+            range: { sheetId, startRowIndex: i, endRowIndex: i + 1, startColumnIndex: 3, endColumnIndex: 4 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 1, green: 0.8, blue: 0.8 },
+                textFormat: { bold: true, foregroundColor: { red: 0.8, green: 0, blue: 0 }, fontSize: 9 }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
+        });
+      }
+    }
+
+    // --- 1행 고정 (freeze) ---
+    requests.push({
+      updateSheetProperties: {
+        properties: { sheetId, gridProperties: { frozenRowCount: 2, frozenColumnCount: 2 } },
+        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
+      }
+    });
+
+    // --- 필터 설정 (1행 기준) ---
+    // 기존 필터 제거
+    requests.push({
+      clearBasicFilter: { sheetId }
+    });
+    // 새 필터 적용
+    requests.push({
+      setBasicFilter: {
+        filter: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
+        }
+      }
+    });
+
+    // --- 열 너비 조정 ---
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: 100 }, fields: 'pixelSize'
+      }
+    });
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
+        properties: { pixelSize: 280 }, fields: 'pixelSize'
+      }
+    });
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 },
+        properties: { pixelSize: 60 }, fields: 'pixelSize'
+      }
+    });
+    if (totalCols > 4) {
+      requests.push({
+        updateDimensionProperties: {
+          range: { sheetId, dimension: 'COLUMNS', startIndex: 4, endIndex: totalCols },
+          properties: { pixelSize: 50 }, fields: 'pixelSize'
+        }
+      });
+    }
+
+    // 서식 일괄 적용
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests }
+    });
+
+    console.log('[Sheets] ' + brandName + ': ' + skuRows.length + ' SKUs, ' + allDates.length + ' dates synced + formatted');
   } catch (e) { console.error('[Sheets] sync error:', e.message); }
 }
+
 
 
 async function syncDailyTrend(brandRows) {

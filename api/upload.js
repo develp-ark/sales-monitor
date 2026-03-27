@@ -2,22 +2,21 @@ const { google } = require('googleapis');
 
 const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
-let _sheets = null;
-
 async function getSheetsAsync() {
-  if (_sheets) return _sheets;
-  let key = process.env.GOOGLE_PRIVATE_KEY || '';
-  if (!key.includes('\n') && key.includes('\\n')) {
-    key = key.replace(/\\n/g, '\n');
+  const key = process.env.GOOGLE_PRIVATE_KEY || '';
+  const email = process.env.GOOGLE_CLIENT_EMAIL || '';
+  
+  if (!key || !email) {
+    throw new Error('GOOGLE_PRIVATE_KEY or GOOGLE_CLIENT_EMAIL not set');
   }
-  const auth = new google.auth.JWT(
-    process.env.GOOGLE_CLIENT_EMAIL, null, key,
+  
+  const auth = new google.auth.JWT(email, null, key,
     ['https://www.googleapis.com/auth/spreadsheets']
   );
   await auth.authorize();
-  _sheets = google.sheets({ version: 'v4', auth });
-  return _sheets;
+  return google.sheets({ version: 'v4', auth });
 }
+
 
 async function syncBrandSheet(brandName, rows) {
   const sheets = await getSheetsAsync();

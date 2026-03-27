@@ -31,6 +31,8 @@ async function getSheetsAsync() {
 
 async function syncBrandSheet(brandName, rows) {
   const sheets = await getSheetsAsync();
+  
+  // 시트 존재 확인/생성
   try {
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const exists = meta.data.sheets.some(s => s.properties.title === brandName);
@@ -42,22 +44,108 @@ async function syncBrandSheet(brandName, rows) {
     }
   } catch (e) { console.error('Sheet check error:', e.message); return; }
 
-  const header = ['date', 'SKU ID', 'SKU name', 'sales', 'stock', 'status'];
-  const data = rows.map(r => [r.date, r.sku_id, r.sku_name, r.sales, r.stock != null ? r.stock : '', r.status]);
+  // 1) 기존 시트 데이터 읽기
+  let existing = [];
   try {
-    let existing = [];
-    try {
-      const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:F' });
-      existing = res.data.values || [];
-    } catch (e) {}
-    const newDates = new Set(rows.map(r => r.date));
-    const kept = existing.length > 1 ? existing.slice(1).filter(row => !newDates.has(row[0])) : [];
-    const sorted = [header, ...[...kept, ...data].sort((a, b) => (b[0] > a[0] ? 1 : b[0] < a[0] ? -1 : 0))];
-    await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:F' });
-    await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: brandName + '!A1', valueInputOption: 'RAW', requestBody: { values: sorted } });
-    console.log('[Sheets] ' + brandName + ': ' + data.length + ' rows synced');
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:ZZ'
+    });
+    existing = res.data.values || [];
+  } catch (e) {}
+
+  // 2) 기존 데이터에서 SKU 맵, 날짜 목록 복원
+  let oldHeader = [];
+  let oldDates = [];
+  const skuMap = new Map(); // sku_id -> { name, stock, status, salesByDate }
+
+  if (existing.length >= 2) {
+    oldHeader = existing[0];
+    // 날짜는 E열(index 4)부터
+    oldDates = oldHeader.slice(4);
+    for (let i = 2; i < existing.length; i++) { // 0=헤더, 1=합계행, 2~=SKU행
+      const row = existing[i];
+      const skuId = String(row[0] || '').trim();
+      if (!skuId) continue;
+      const salesByDate = {};
+      for (let j = 4; j < row.length; j++) {
+        const d = oldDates[j - 4];
+        if (d) salesByDate[d] = num(row[j], 0);
+      }
+      skuMap.set(skuId, {
+        name: row[1] || '',
+        stock: row[2] != null ? row[2] : '',
+        status: row[3] || '',
+        salesByDate
+      });
+    }
+  }
+
+  // 3) 새 데이터 반영
+  const newDates = new Set();
+  for (const r of rows) {
+    newDates.add(r.date);
+    const sid = String(r.sku_id).trim();
+    if (!skuMap.has(sid)) {
+      skuMap.set(sid, { name: '', stock: '', status: '', salesByDate: {} });
+    }
+    const entry = skuMap.get(sid);
+    // SKU명, 재고, 상태는 최신 데이터로 덮어쓰기
+    if (r.sku_name) entry.name = r.sku_name;
+    if (r.stock != null) entry.stock = r.stock;
+    if (r.status) entry.status = r.status;
+    // 해당 날짜 판매량 덮어쓰기
+    entry.salesByDate[r.date] = r.sales;
+  }
+
+  // 4) 전체 날짜 목록 (오래된 날짜 → 최신 날짜, 왼쪽→오른쪽)
+  const allDatesSet = new Set([...oldDates, ...newDates]);
+  const allDates = [...allDatesSet].sort();
+
+  // 5) 날짜 표시: MM-DD 형식
+  const dateLabelRow = allDates.map(d => {
+    const parts = d.split('-');
+    return parts.length === 3 ? parts[1] + '-' + parts[2] : d;
+  });
+
+  // 6) 헤더행
+  const header = ['SKU ID', 'SKU 명', '재고', '상태', ...dateLabelRow];
+
+  // 7) 일별 합계 계산
+  const dailyTotals = allDates.map(d => {
+    let total = 0;
+    for (const [, entry] of skuMap) {
+      total += (entry.salesByDate[d] || 0);
+    }
+    return total;
+  });
+  const sumRow = ['', '', '', '', ...dailyTotals];
+
+  // 8) SKU 행 (SKU ID 오름차순)
+  const skuRows = [];
+  const sortedSkus = [...skuMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [skuId, entry] of sortedSkus) {
+    const salesCells = allDates.map(d => entry.salesByDate[d] || 0);
+    skuRows.push([skuId, entry.name, entry.stock, entry.status, ...salesCells]);
+  }
+
+  // 9) 최종 데이터: 헤더 + 합계행 + SKU행들
+  const allRows = [header, sumRow, ...skuRows];
+
+  // 10) 시트에 쓰기
+  try {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:ZZ'
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: brandName + '!A1',
+      valueInputOption: 'RAW',
+      requestBody: { values: allRows }
+    });
+    console.log('[Sheets] ' + brandName + ': ' + skuRows.length + ' SKUs, ' + allDates.length + ' dates synced');
   } catch (e) { console.error('[Sheets] sync error:', e.message); }
 }
+
 
 async function syncDailyTrend(brandRows) {
   const sheets = await getSheetsAsync()

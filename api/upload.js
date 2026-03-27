@@ -1,3 +1,4 @@
+const { syncBrandSheet, syncDailyTrend } = require('../lib/sheets');
 const Busboy = require('busboy');
 const { parse } = require('csv-parse');
 const { getDb } = require('../lib/db');
@@ -108,6 +109,7 @@ module.exports = async (req, res) => {
 
   let totalRows = 0;
   let fileBrandFromName = null;
+  const allParsedRows = [];
 
   try {
     const db = getDb();
@@ -137,6 +139,7 @@ module.exports = async (req, res) => {
             const row = rowFromRecord(rec, fileBrandFromName);
             if (!row) continue;
             batch.push(row);
+            allParsedRows.push(row);
             totalRows++;
             if (batch.length >= BATCH_SIZE) {
               await flushBatch(db, batch.splice(0, BATCH_SIZE));
@@ -154,6 +157,31 @@ module.exports = async (req, res) => {
 
     req.pipe(bb);
     await done;
+
+    // ── Google Sheets 동기화 (비동기, 에러 무시) ──
+    if (totalRows > 0 && allParsedRows.length > 0) {
+      (async () => {
+        try {
+          const byBrand = {};
+          for (const r of allParsedRows) {
+            if (!byBrand[r.brand]) byBrand[r.brand] = [];
+            byBrand[r.brand].push(r);
+          }
+          for (const [brand, rows] of Object.entries(byBrand)) {
+            await syncBrandSheet(brand, rows);
+          }
+
+          const trendByBrand = {};
+          for (const r of allParsedRows) {
+            if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
+            trendByBrand[r.brand].push({ date: r.date, totalSales: r.sales });
+          }
+          await syncDailyTrend(trendByBrand);
+        } catch (e) {
+          console.error('[Sheets sync error]', e.message);
+        }
+      })();
+    }
 
     return res.status(200).json({
       ok: true,

@@ -448,10 +448,7 @@ function rowFromRecord(rec, fileBrand) {
   const sku_id = rec.sku_id != null ? String(rec.sku_id).trim() : '';
   if (!date || !sku_id) return null;
 
-  const brand =
-    fileBrand ||
-    (rec.brandCsv != null && String(rec.brandCsv).trim()) ||
-    '기타';
+  const brand = fileBrandFromName || row.brand || row['브랜드'] || '';
   const sku_name = rec.sku_name != null ? String(rec.sku_name).trim() : '';
   const sales = num(rec.sales, 0);
   const stockVal = rec.stock;

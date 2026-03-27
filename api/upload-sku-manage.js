@@ -43,6 +43,10 @@ module.exports = async function handler(req, res) {
       'ALTER TABLE sku_manage ADD COLUMN iid TEXT',
       'ALTER TABLE sku_manage ADD COLUMN vid TEXT',
       'ALTER TABLE sku_manage ADD COLUMN product_url TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN active INTEGER DEFAULT 1',
+      'ALTER TABLE sku_manage ADD COLUMN created_at TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN updated_at TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN memo TEXT',
     ];
     for (const sql of alters) {
       try { await db.execute(sql); } catch(e) { /* already exists */ }

@@ -38,6 +38,16 @@ module.exports = async function handler(req, res) {
     const db = getDb();
     await db.execute(INIT_SQL);
 
+    const alters = [
+      'ALTER TABLE sku_manage ADD COLUMN pid TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN iid TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN vid TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN product_url TEXT',
+    ];
+    for (const sql of alters) {
+      try { await db.execute(sql); } catch(e) { /* already exists */ }
+    }
+
     function col(row, keys) {
       for (var k of keys) {
         if (row[k] != null && String(row[k]).trim()) return String(row[k]).trim();

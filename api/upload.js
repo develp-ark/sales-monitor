@@ -65,10 +65,30 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(date, sku_id) DO UPDATE SET
   brand = excluded.brand,
   sku_name = excluded.sku_name,
-  sales = sales.sales + excluded.sales,
-  stock = CASE WHEN excluded.stock IS NOT NULL THEN excluded.stock ELSE sales.stock END,
+  sales = excluded.sales,
+  stock = excluded.stock,
   status = excluded.status,
   revenue = excluded.revenue`;
+
+function mergeRows(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = `${r.date}|${r.sku_id}`;
+    if (map.has(key)) {
+      const existing = map.get(key);
+      existing.sales += r.sales;
+      if (r.stock != null && (existing.stock == null || r.stock > existing.stock)) {
+        existing.stock = r.stock;
+      }
+      if (r.sku_name) existing.sku_name = r.sku_name;
+      if (r.status) existing.status = r.status;
+      if (r.brand) existing.brand = r.brand;
+    } else {
+      map.set(key, { ...r });
+    }
+  }
+  return [...map.values()];
+}
 
 async function flushBatch(db, batch) {
   if (!batch.length) return;
@@ -131,22 +151,22 @@ module.exports = async (req, res) => {
         });
 
         chain = chain.then(async () => {
-          const batch = [];
+          const rawRows = [];
           fileStream.on('error', reject);
           fileStream.pipe(parser);
 
           for await (const rec of parser) {
             const row = rowFromRecord(rec, fileBrandFromName);
             if (!row) continue;
-            batch.push(row);
-            allParsedRows.push(row);
-            totalRows++;
-            if (batch.length >= BATCH_SIZE) {
-              await flushBatch(db, batch.splice(0, BATCH_SIZE));
-            }
+            rawRows.push(row);
           }
-          if (batch.length) {
-            await flushBatch(db, batch);
+
+          const merged = mergeRows(rawRows);
+          totalRows += merged.length;
+          allParsedRows.push(...merged);
+
+          for (let i = 0; i < merged.length; i += BATCH_SIZE) {
+            await flushBatch(db, merged.slice(i, i + BATCH_SIZE));
           }
         });
       });

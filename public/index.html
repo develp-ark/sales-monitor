@@ -281,6 +281,15 @@ var FLAG_SKU = { id:'', name:'', brand:'' };
 var CTRL = { threshold:30, minSales:5, period:7, topCount:10 };
 var FLAG_FILTER = {};
 
+// ★ 전역 브랜드 테마 (한 번만 정의)
+var bTheme={
+  '건우코리아':{color:'#3182F6',light:'#EBF3FE',grad:'linear-gradient(135deg,#EBF3FE 0%,#fff 60%)'},
+  '아리코':    {color:'#00B493',light:'#E8FAF6',grad:'linear-gradient(135deg,#E8FAF6 0%,#fff 60%)'},
+  '윰':       {color:'#F04452',light:'#FEECEE',grad:'linear-gradient(135deg,#FEECEE 0%,#fff 60%)'}
+};
+var defaultTheme={color:'#6B7684',light:'#F2F3F5',grad:'linear-gradient(135deg,#F2F3F5 0%,#fff 60%)'};
+
+
 document.getElementById('dateD').textContent = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
 loadAll();
 
@@ -318,13 +327,6 @@ function renderDash(){
   if(!D||!D.brands) return;
 
   var DASH_SHEET_URL='https://docs.google.com/spreadsheets/d/1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw/edit';
-  var bTheme={
-    '건우코리아':{color:'#3182F6',light:'#EBF3FE',grad:'linear-gradient(135deg,#EBF3FE 0%,#fff 60%)'},
-    '아리코':    {color:'#00B493',light:'#E8FAF6',grad:'linear-gradient(135deg,#E8FAF6 0%,#fff 60%)'},
-    '윰':       {color:'#F04452',light:'#FEECEE',grad:'linear-gradient(135deg,#FEECEE 0%,#fff 60%)'}
-  };
-  var defaultTheme={color:'#6B7684',light:'#F2F3F5',grad:'linear-gradient(135deg,#F2F3F5 0%,#fff 60%)'};
-
   var h='<div class="dash-grid">';
   var brandNames=Object.keys(D.brands);
 
@@ -380,13 +382,13 @@ function renderTrend(){
   var brands = Object.keys(D.brands||{});
   var dt = D.dailyTrend || {};
   var dn = ['일','월','화','수','목','금','토'];
-  var bTheme = [
-    {bg:'#eef3ff',hd:'#4285f4',tx:'#1a56cc',sub:'#d2e3fc',accent:'#1a73e8'},
-    {bg:'#fef2f0',hd:'#ea4335',tx:'#c5221f',sub:'#fad2cf',accent:'#ea4335'},
-    {bg:'#eef8f0',hd:'#34a853',tx:'#1e7e34',sub:'#ceead6',accent:'#34a853'},
-    {bg:'#fef7e0',hd:'#f9ab00',tx:'#b06d00',sub:'#feefc3',accent:'#f9ab00'},
-    {bg:'#f3eeff',hd:'#9334e6',tx:'#7627bb',sub:'#e0d0f7',accent:'#9334e6'}
-  ];
+  var tTheme = brands.map(function(b){
+    var t = bTheme[b] || defaultTheme;
+    return {bg:t.light, hd:t.color, tx:t.color, sub:t.light, accent:t.color};
+  });
+  function bt(i){ return tTheme[i] || {bg:'#f5f5f5',hd:'#888',tx:'#888',sub:'#eee',accent:'#888'}; }
+
+
 
   function fmtD(d){return d.toISOString().slice(0,10);}
   function addD(iso,n){var x=new Date(iso+'T12:00:00Z');x.setUTCDate(x.getUTCDate()+n);return fmtD(x);}
@@ -537,14 +539,11 @@ function renderInsight(){
   var brands=Object.keys((D&&D.brands)||{});
   if(!brands.length){tabsEl.innerHTML='';contEl.innerHTML='<div class="empty" style="padding:20px">데이터가 없습니다.</div>';return;}
 
-  var bTheme = [
-    {accent:'#1a73e8',bg:'#e8f0fe',tx:'#1a56cc',light:'#f0f6ff',border:'#c5d8f0',tabBg:'#eef3ff'},
-    {accent:'#ea4335',bg:'#fce8e6',tx:'#c5221f',light:'#fef2f0',border:'#fad2cf',tabBg:'#fef2f0'},
-    {accent:'#34a853',bg:'#e6f4ea',tx:'#1e7e34',light:'#f2faf4',border:'#ceead6',tabBg:'#eef8f0'},
-    {accent:'#f9ab00',bg:'#feefc3',tx:'#b06d00',light:'#fef7e0',border:'#fdd663',tabBg:'#fffbeb'},
-    {accent:'#9334e6',bg:'#e0d0f7',tx:'#7627bb',light:'#f3eeff',border:'#d0bef5',tabBg:'#f5f0ff'}
-  ];
-  function bt(i){return bTheme[i%bTheme.length];}
+  var iTheme = brands.map(function(b){
+    var t = bTheme[b] || defaultTheme;
+    return {accent:t.color, bg:t.light, tx:t.color, light:t.light, border:t.light, tabBg:t.light};
+  });
+  function bt(i){ return iTheme[i] || {accent:'#888',bg:'#f5f5f5',tx:'#888',light:'#f5f5f5',border:'#ddd',tabBg:'#f5f5f5'}; }
 
   var th='',ch='';
 
@@ -753,19 +752,18 @@ function goInsight(brand){
 }
 
 function brandTab(brand,el,idx){
-  var bTheme = [
-    {accent:'#1a73e8',tabBg:'#eef3ff'},
-    {accent:'#ea4335',tabBg:'#fef2f0'},
-    {accent:'#34a853',tabBg:'#eef8f0'},
-    {accent:'#f9ab00',tabBg:'#fffbeb'},
-    {accent:'#9334e6',tabBg:'#f5f0ff'}
-  ];
+  var brands = Object.keys((D&&D.brands)||{});
+  var tabTheme = brands.map(function(b){
+    var t = bTheme[b] || defaultTheme;
+    return {accent:t.color, tabBg:t.light};
+  });
+
   document.querySelectorAll('.brand-tab').forEach(function(t){
     t.classList.remove('active');
     t.style.color='';t.style.borderBottomColor='';t.style.background='';
   });
   if(el){
-    var t=bTheme[idx%bTheme.length];
+    var t=tabTheme[idx]||{accent:'#888',tabBg:'#f5f5f5'};
     el.classList.add('active');
     el.style.color=t.accent;
     el.style.borderBottomColor=t.accent;

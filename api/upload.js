@@ -4,11 +4,20 @@ const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
 function getAuth() {
   let key = process.env.GOOGLE_PRIVATE_KEY || '';
+  const email = process.env.GOOGLE_CLIENT_EMAIL || '';
+  
+  console.log('[AUTH DEBUG] email length:', email.length);
+  console.log('[AUTH DEBUG] key length:', key.length);
+  console.log('[AUTH DEBUG] key has real newline:', key.includes('\n'));
+  console.log('[AUTH DEBUG] key starts with:', key.substring(0, 30));
+  
   if (!key.includes('\n') && key.includes('\\n')) {
     key = key.replace(/\\n/g, '\n');
+    console.log('[AUTH DEBUG] replaced \\n, new length:', key.length);
   }
+  
   return new google.auth.JWT(
-    process.env.GOOGLE_CLIENT_EMAIL, null, key,
+    email, null, key,
     ['https://www.googleapis.com/auth/spreadsheets']
   );
 }

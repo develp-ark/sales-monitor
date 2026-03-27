@@ -8,6 +8,9 @@ module.exports = async function handler(req, res) {
       sku_id TEXT PRIMARY KEY,
       brand TEXT,
       sku_name TEXT,
+      base_price INTEGER,
+      current_price INTEGER,
+      price_checked_at TEXT,
       pid TEXT,
       iid TEXT,
       vid TEXT,
@@ -28,6 +31,9 @@ module.exports = async function handler(req, res) {
       'ALTER TABLE sku_manage ADD COLUMN created_at TEXT',
       'ALTER TABLE sku_manage ADD COLUMN updated_at TEXT',
       'ALTER TABLE sku_manage ADD COLUMN memo TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN base_price INTEGER',
+      'ALTER TABLE sku_manage ADD COLUMN current_price INTEGER',
+      'ALTER TABLE sku_manage ADD COLUMN price_checked_at TEXT',
     ];
     for (const sql of alters) {
       try { await db.execute(sql); } catch(e) { /* already exists */ }

@@ -971,6 +971,10 @@ async function renderSkuManage(){
   h+='<th style="padding:10px 12px;text-align:left;font-weight:600">SKU ID</th>';
   h+='<th style="padding:10px 12px;text-align:left;font-weight:600;min-width:250px">상품명</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">링크</th>';
+  h+='<th style="padding:10px 12px;text-align:right;font-weight:600">등록가</th>';
+  h+='<th style="padding:10px 12px;text-align:right;font-weight:600">현재가</th>';
+  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">변동</th>';
+  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">가격확인</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
   h+='<th style="padding:10px 12px;text-align:left;font-weight:600">메모</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">관리</th>';
@@ -989,6 +993,39 @@ async function renderSkuManage(){
     h+='<td style="padding:8px 12px;text-align:center">';
     if(url) h+='<a href="'+esc(url)+'" target="_blank" style="text-decoration:none">🔗</a>';
     else h+='<span style="color:#D1D6DB">-</span>';
+    h+='</td>';
+    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
+    h+=(r.base_price ? Number(r.base_price).toLocaleString('ko-KR')+'원' : '-');
+    h+='</td>';
+    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums" id="cp_'+esc(r.sku_id)+'">';
+    if(r.current_price){
+      h+=Number(r.current_price).toLocaleString('ko-KR')+'원';
+      if(r.price_checked_at){
+        var ago=timeAgo(r.price_checked_at);
+        h+='<div style="font-size:10px;color:#8B95A1">'+ago+'</div>';
+      }
+    }else{
+      h+='<span style="color:#D1D6DB">미확인</span>';
+    }
+    h+='</td>';
+    h+='<td style="padding:8px 12px;text-align:center" id="pd_'+esc(r.sku_id)+'">';
+    if(r.base_price && r.current_price){
+      var diff=r.current_price - r.base_price;
+      var pct=Math.round((diff/r.base_price)*100);
+      if(diff<0) h+='<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
+      else if(diff>0) h+='<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
+      else h+='<span style="color:#00B493">✅</span>';
+    }else{
+      h+='-';
+    }
+    h+='</td>';
+    h+='<td style="padding:8px 12px;text-align:center">';
+    var hasUrl = r.product_url || r.pid;
+    if(hasUrl){
+      h+='<button onclick="checkPrice(\''+esc(r.sku_id)+'\')" id="cpBtn_'+esc(r.sku_id)+'" style="background:#EBF3FE;color:#3182F6;border:none;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">🔍</button>';
+    }else{
+      h+='<span style="color:#D1D6DB;font-size:11px">URL없음</span>';
+    }
     h+='</td>';
     h+='<td style="padding:8px 12px;text-align:center">';
     if(r.flag) h+='<span style="background:'+(r.flag==='TOP'?'#FFF3E0':r.flag==='주의'?'#FEECEE':'#EBF3FE')+';color:'+(r.flag==='TOP'?'#E65100':r.flag==='주의'?'#F04452':'#3182F6')+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
@@ -1045,6 +1082,66 @@ function deactivateSku(skuId){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({sku_id:skuId})
   }).then(function(){location.reload();});
+}
+
+var _lastPriceCheck = 0;
+
+async function checkPrice(skuId){
+  var now = Date.now();
+  if(now - _lastPriceCheck < 5000){
+    alert('잠시 후 다시 시도해주세요 (5초 간격)');
+    return;
+  }
+  _lastPriceCheck = now;
+
+  var btn = document.getElementById('cpBtn_'+skuId);
+  if(btn) btn.textContent = '⏳';
+
+  try{
+    var r = await fetch('/api/check-price',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sku_id:skuId})
+    });
+    var d = await r.json();
+
+    if(d.ok){
+      var cpEl = document.getElementById('cp_'+skuId);
+      if(cpEl){
+        var h = Number(d.current_price).toLocaleString('ko-KR')+'원';
+        if(d.cached) h+='<div style="font-size:10px;color:#8B95A1">캐시</div>';
+        else h+='<div style="font-size:10px;color:#00B493">방금 확인</div>';
+        cpEl.innerHTML=h;
+      }
+
+      var pdEl = document.getElementById('pd_'+skuId);
+      if(pdEl && d.base_price && d.current_price){
+        var diff=d.current_price - d.base_price;
+        var pct=Math.round((diff/d.base_price)*100);
+        if(diff<0) pdEl.innerHTML='<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
+        else if(diff>0) pdEl.innerHTML='<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
+        else pdEl.innerHTML='<span style="color:#00B493">✅</span>';
+      }
+
+      if(btn) btn.textContent='🔍';
+    }else{
+      if(btn) btn.textContent='❌';
+      alert('가격 조회 실패: '+(d.error||'unknown'));
+    }
+  }catch(e){
+    if(btn) btn.textContent='❌';
+    alert('오류: '+e.message);
+  }
+}
+
+function timeAgo(dateStr){
+  var diff = Date.now() - new Date(dateStr).getTime();
+  var min = Math.floor(diff/60000);
+  if(min<60) return min+'분 전';
+  var hr=Math.floor(min/60);
+  if(hr<24) return hr+'시간 전';
+  var day=Math.floor(hr/24);
+  return day+'일 전';
 }
 
 function log(msg, show){

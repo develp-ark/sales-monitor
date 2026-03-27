@@ -6,6 +6,9 @@ const INIT_SQL = `CREATE TABLE IF NOT EXISTS sku_manage (
   sku_id TEXT PRIMARY KEY,
   brand TEXT,
   sku_name TEXT,
+  base_price INTEGER,
+  current_price INTEGER,
+  price_checked_at TEXT,
   pid TEXT,
   iid TEXT,
   vid TEXT,
@@ -47,6 +50,9 @@ module.exports = async function handler(req, res) {
       'ALTER TABLE sku_manage ADD COLUMN created_at TEXT',
       'ALTER TABLE sku_manage ADD COLUMN updated_at TEXT',
       'ALTER TABLE sku_manage ADD COLUMN memo TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN base_price INTEGER',
+      'ALTER TABLE sku_manage ADD COLUMN current_price INTEGER',
+      'ALTER TABLE sku_manage ADD COLUMN price_checked_at TEXT',
     ];
     for (const sql of alters) {
       try { await db.execute(sql); } catch(e) { /* already exists */ }
@@ -72,6 +78,7 @@ module.exports = async function handler(req, res) {
       const productUrl = col(row, ['product_url', 'url', 'URL', '상품URL', 'link']);
       const flag = col(row, ['flag', '플래그', 'Flag']);
       const memo = col(row, ['memo', '메모', 'Memo']);
+      const basePrice = col(row, ['base_price', '등록가', '가격', 'price']);
 
       let finalPid = pid, finalIid = iid, finalVid = vid;
       if (productUrl && (!pid || !iid || !vid)) {
@@ -84,11 +91,12 @@ module.exports = async function handler(req, res) {
       }
 
       await db.execute({
-        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, pid, iid, vid, product_url, flag, memo, active, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
+        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, base_price, pid, iid, vid, product_url, flag, memo, active, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'))
               ON CONFLICT(sku_id) DO UPDATE SET
                 brand=CASE WHEN excluded.brand!='' THEN excluded.brand ELSE sku_manage.brand END,
                 sku_name=CASE WHEN excluded.sku_name!='' THEN excluded.sku_name ELSE sku_manage.sku_name END,
+                base_price=CASE WHEN excluded.base_price IS NOT NULL THEN excluded.base_price ELSE sku_manage.base_price END,
                 pid=CASE WHEN excluded.pid!='' THEN excluded.pid ELSE sku_manage.pid END,
                 iid=CASE WHEN excluded.iid!='' THEN excluded.iid ELSE sku_manage.iid END,
                 vid=CASE WHEN excluded.vid!='' THEN excluded.vid ELSE sku_manage.vid END,
@@ -96,7 +104,7 @@ module.exports = async function handler(req, res) {
                 flag=CASE WHEN excluded.flag!='' THEN excluded.flag ELSE sku_manage.flag END,
                 memo=CASE WHEN excluded.memo!='' THEN excluded.memo ELSE sku_manage.memo END,
                 updated_at=datetime('now')`,
-        args: [skuId, brand, skuName, finalPid||null, finalIid||null, finalVid||null, productUrl||null, flag||null, memo||null]
+        args: [skuId, brand, skuName, basePrice?parseInt(basePrice):null, finalPid||null, finalIid||null, finalVid||null, productUrl||null, flag||null, memo||null]
       });
       count++;
     }

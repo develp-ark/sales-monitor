@@ -974,7 +974,6 @@ async function renderSkuManage(){
   h+='<th style="padding:10px 12px;text-align:right;font-weight:600">등록가</th>';
   h+='<th style="padding:10px 12px;text-align:right;font-weight:600">현재가</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">변동</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">가격확인</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
   h+='<th style="padding:10px 12px;text-align:left;font-weight:600">메모</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">관리</th>';
@@ -997,15 +996,15 @@ async function renderSkuManage(){
     h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
     h+=(r.base_price ? Number(r.base_price).toLocaleString('ko-KR')+'원' : '-');
     h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums" id="cp_'+esc(r.sku_id)+'">';
+    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
     if(r.current_price){
-      h+=Number(r.current_price).toLocaleString('ko-KR')+'원';
+      h+='<span onclick="editPrice(\''+esc(r.sku_id)+'\','+r.current_price+')" style="cursor:pointer;border-bottom:1px dashed #3182F6;color:#191F28">';
+      h+=Number(r.current_price).toLocaleString('ko-KR')+'원 ✏️</span>';
       if(r.price_checked_at){
-        var ago=timeAgo(r.price_checked_at);
-        h+='<div style="font-size:10px;color:#8B95A1">'+ago+'</div>';
+        h+='<div style="font-size:10px;color:#8B95A1">'+timeAgo(r.price_checked_at)+'</div>';
       }
     }else{
-      h+='<span style="color:#D1D6DB">미확인</span>';
+      h+='<span onclick="editPrice(\''+esc(r.sku_id)+'\',0)" style="cursor:pointer;color:#3182F6;font-size:12px">+ 입력</span>';
     }
     h+='</td>';
     h+='<td style="padding:8px 12px;text-align:center" id="pd_'+esc(r.sku_id)+'">';
@@ -1017,14 +1016,6 @@ async function renderSkuManage(){
       else h+='<span style="color:#00B493">✅</span>';
     }else{
       h+='-';
-    }
-    h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:center">';
-    var hasUrl = r.product_url || r.pid;
-    if(hasUrl){
-      h+='<button onclick="checkPrice(\''+esc(r.sku_id)+'\')" id="cpBtn_'+esc(r.sku_id)+'" style="background:#EBF3FE;color:#3182F6;border:none;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">🔍</button>';
-    }else{
-      h+='<span style="color:#D1D6DB;font-size:11px">URL없음</span>';
     }
     h+='</td>';
     h+='<td style="padding:8px 12px;text-align:center">';
@@ -1084,54 +1075,22 @@ function deactivateSku(skuId){
   }).then(function(){location.reload();});
 }
 
-var _lastPriceCheck = 0;
-
-async function checkPrice(skuId){
-  var now = Date.now();
-  if(now - _lastPriceCheck < 5000){
-    alert('잠시 후 다시 시도해주세요 (5초 간격)');
-    return;
-  }
-  _lastPriceCheck = now;
-
-  var btn = document.getElementById('cpBtn_'+skuId);
-  if(btn) btn.textContent = '⏳';
+async function editPrice(skuId, currentVal){
+  var input = prompt('현재 판매가를 입력하세요 (숫자만):', currentVal||'');
+  if(input===null) return;
+  var price = parseInt(input.replace(/[^0-9]/g,''));
+  if(!price && price!==0){ alert('숫자를 입력해주세요'); return; }
 
   try{
-    var r = await fetch('/api/check-price',{
+    var r = await fetch('/api/sku-manage',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sku_id:skuId})
+      body:JSON.stringify({sku_id:skuId, current_price:price, price_checked_at:new Date().toISOString()})
     });
     var d = await r.json();
-
-    if(d.ok){
-      var cpEl = document.getElementById('cp_'+skuId);
-      if(cpEl){
-        var h = Number(d.current_price).toLocaleString('ko-KR')+'원';
-        if(d.cached) h+='<div style="font-size:10px;color:#8B95A1">캐시</div>';
-        else h+='<div style="font-size:10px;color:#00B493">방금 확인</div>';
-        cpEl.innerHTML=h;
-      }
-
-      var pdEl = document.getElementById('pd_'+skuId);
-      if(pdEl && d.base_price && d.current_price){
-        var diff=d.current_price - d.base_price;
-        var pct=Math.round((diff/d.base_price)*100);
-        if(diff<0) pdEl.innerHTML='<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
-        else if(diff>0) pdEl.innerHTML='<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
-        else pdEl.innerHTML='<span style="color:#00B493">✅</span>';
-      }
-
-      if(btn) btn.textContent='🔍';
-    }else{
-      if(btn) btn.textContent='❌';
-      alert('가격 조회 실패: '+(d.error||'unknown'));
-    }
-  }catch(e){
-    if(btn) btn.textContent='❌';
-    alert('오류: '+e.message);
-  }
+    if(d.ok) renderSkuManage();
+    else alert('저장 실패: '+(d.error||''));
+  }catch(e){ alert('오류: '+e.message); }
 }
 
 function timeAgo(dateStr){

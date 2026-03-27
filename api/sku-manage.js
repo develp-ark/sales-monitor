@@ -59,17 +59,42 @@ module.exports = async function handler(req, res) {
       let b = req.body;
       if (typeof b === 'string') b = JSON.parse(b);
       if (!b || !b.sku_id) return res.status(400).json({ error: 'sku_id required' });
+
+      const existing = await db.execute({ sql: 'SELECT * FROM sku_manage WHERE sku_id = ?', args: [b.sku_id] });
+      const old = existing.rows.length ? existing.rows[0] : {};
+
       await db.execute({
-        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, pid, iid, vid, product_url, flag, memo, active, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, base_price, current_price, price_checked_at, pid, iid, vid, product_url, flag, memo, active, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
               ON CONFLICT(sku_id) DO UPDATE SET
-                brand=excluded.brand, sku_name=excluded.sku_name,
-                pid=excluded.pid, iid=excluded.iid, vid=excluded.vid,
-                product_url=excluded.product_url, flag=excluded.flag,
-                memo=excluded.memo, active=excluded.active,
+                brand=CASE WHEN excluded.brand!='' THEN excluded.brand ELSE sku_manage.brand END,
+                sku_name=CASE WHEN excluded.sku_name!='' THEN excluded.sku_name ELSE sku_manage.sku_name END,
+                base_price=CASE WHEN excluded.base_price IS NOT NULL THEN excluded.base_price ELSE sku_manage.base_price END,
+                current_price=CASE WHEN excluded.current_price IS NOT NULL THEN excluded.current_price ELSE sku_manage.current_price END,
+                price_checked_at=CASE WHEN excluded.price_checked_at IS NOT NULL THEN excluded.price_checked_at ELSE sku_manage.price_checked_at END,
+                pid=CASE WHEN excluded.pid IS NOT NULL THEN excluded.pid ELSE sku_manage.pid END,
+                iid=CASE WHEN excluded.iid IS NOT NULL THEN excluded.iid ELSE sku_manage.iid END,
+                vid=CASE WHEN excluded.vid IS NOT NULL THEN excluded.vid ELSE sku_manage.vid END,
+                product_url=CASE WHEN excluded.product_url IS NOT NULL THEN excluded.product_url ELSE sku_manage.product_url END,
+                flag=CASE WHEN excluded.flag IS NOT NULL THEN excluded.flag ELSE sku_manage.flag END,
+                memo=CASE WHEN excluded.memo IS NOT NULL THEN excluded.memo ELSE sku_manage.memo END,
+                active=excluded.active,
                 updated_at=datetime('now')`,
-        args: [b.sku_id, b.brand||'', b.sku_name||'', b.pid||null, b.iid||null, b.vid||null,
-               b.product_url||null, b.flag||null, b.memo||null, b.active!=null?b.active:1]
+        args: [
+          b.sku_id,
+          b.brand||old.brand||'',
+          b.sku_name||old.sku_name||'',
+          b.base_price!=null?b.base_price:(old.base_price||null),
+          b.current_price!=null?b.current_price:(old.current_price||null),
+          b.price_checked_at||old.price_checked_at||null,
+          b.pid||old.pid||null,
+          b.iid||old.iid||null,
+          b.vid||old.vid||null,
+          b.product_url||old.product_url||null,
+          b.flag||old.flag||null,
+          b.memo||old.memo||null,
+          b.active!=null?b.active:1
+        ]
       });
       return res.status(200).json({ ok: true });
     }

@@ -36,7 +36,6 @@ module.exports = async function handler(req, res) {
     const records = parse(csv, { columns: true, skip_empty_lines: true, bom: true, relax_quotes: true, relax_column_count: true });
 
     const db = getDb();
-    await db.execute('DROP TABLE IF EXISTS sku_manage');
     await db.execute(INIT_SQL);
 
     const alters = [

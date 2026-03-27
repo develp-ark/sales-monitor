@@ -942,14 +942,12 @@ function getSkuUrl(r){
   return null;
 }
 
-function renderSkuManage(){
-  if(!D) return;
-  var map = D.skuManageMap || {};
-  var items = Object.values(map);
-  var brands = [];
-  var bSet={};
-  for(var i=0;i<items.length;i++){var br=items[i].brand;if(br&&!bSet[br]){bSet[br]=1;brands.push(br);}}
-  brands.sort();
+async function renderSkuManage(){
+  var resp = await fetch('/api/sku-manage');
+  var result = await resp.json();
+  var items = (result.ok && result.data) ? result.data : [];
+
+  var brands = [...new Set(items.map(function(r){return r.brand}))].sort();
 
   var h='';
   h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">';
@@ -958,7 +956,9 @@ function renderSkuManage(){
   for(var i=0;i<brands.length;i++) h+='<option>'+esc(brands[i])+'</option>';
   h+='</select>';
   h+='<select id="smFlagFilter" onchange="filterSkuManage()" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px">';
-  h+='<option value="">전체 플래그</option><option>TOP</option><option>신규</option><option>주의</option>';
+  h+='<option value="">전체 플래그</option>';
+  var flags=[...new Set(items.map(function(r){return r.flag}).filter(Boolean))].sort();
+  for(var i=0;i<flags.length;i++) h+='<option>'+esc(flags[i])+'</option>';
   h+='</select>';
   h+='<input id="smSearch" oninput="filterSkuManage()" placeholder="SKU ID 또는 상품명 검색" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px;flex:1;min-width:200px">';
   h+='<span style="font-size:12px;color:#8B95A1" id="smCount">'+items.length+'개</span>';
@@ -978,13 +978,13 @@ function renderSkuManage(){
 
   for(var i=0;i<items.length;i++){
     var r=items[i];
-    var url = getSkuUrl(r);
-    h+='<tr class="sm-row" data-brand="'+esc(r.brand)+'" data-flag="'+(r.flag||'')+'" data-search="'+esc(r.sku_id+' '+r.sku_name)+'" style="border-top:1px solid #F2F4F6">';
-    h+='<td style="padding:8px 12px;color:#8B95A1;white-space:nowrap">'+esc(r.brand)+'</td>';
-    h+='<td style="padding:8px 12px;font-variant-numeric:tabular-nums">'+esc(r.sku_id)+'</td>';
+    var url=getSkuUrl(r);
+    h+='<tr class="sm-row" data-brand="'+esc(r.brand||'')+'" data-flag="'+(r.flag||'')+'" data-search="'+esc((r.sku_id||'')+' '+(r.sku_name||''))+'" style="border-top:1px solid #F2F4F6">';
+    h+='<td style="padding:8px 12px;color:#8B95A1;white-space:nowrap">'+esc(r.brand||'')+'</td>';
+    h+='<td style="padding:8px 12px;font-variant-numeric:tabular-nums">'+esc(r.sku_id||'')+'</td>';
     h+='<td style="padding:8px 12px">';
-    if(url) h+='<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name)+'</a>';
-    else h+=esc(r.sku_name);
+    if(url) h+='<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
+    else h+=esc(r.sku_name||'');
     h+='</td>';
     h+='<td style="padding:8px 12px;text-align:center">';
     if(url) h+='<a href="'+esc(url)+'" target="_blank" style="text-decoration:none">🔗</a>';

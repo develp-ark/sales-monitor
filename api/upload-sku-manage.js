@@ -1,10 +1,6 @@
 const Busboy = require('busboy');
 const { parse } = require('csv-parse/sync');
-const { createClient } = require('@libsql/client');
-
-function getDb() {
-  return createClient({ url: process.env.TURSO_URL, authToken: process.env.TURSO_AUTH_TOKEN });
-}
+const { getDb } = require('../lib/db');
 
 const INIT_SQL = `CREATE TABLE IF NOT EXISTS sku_manage (
   sku_id TEXT PRIMARY KEY,

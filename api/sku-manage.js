@@ -1,8 +1,4 @@
-const { createClient } = require('@libsql/client');
-
-function getDb() {
-  return createClient({ url: process.env.TURSO_URL, authToken: process.env.TURSO_AUTH_TOKEN });
-}
+const { getDb } = require('../lib/db');
 
 module.exports = async function handler(req, res) {
   try {

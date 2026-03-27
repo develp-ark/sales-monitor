@@ -394,7 +394,7 @@ function renderTrend(){
   function addD(iso,n){var x=new Date(iso+'T12:00:00Z');x.setUTCDate(x.getUTCDate()+n);return fmtD(x);}
   function dayOfWeek(iso){return new Date(iso+'T12:00:00Z').getUTCDay();}
   function val(b,d){return (dt[b]&&dt[b][d])?Number(dt[b][d]):0;}
-  function bt(i){return bTheme[i%bTheme.length];}
+  function bt(i){return tTheme[i] || {bg:'#f5f5f5',hd:'#888',tx:'#888',sub:'#eee',accent:'#888'};}
   function fmtDate(d){var p=d.split('-');if(p.length===3)return p[0].substring(2)+'.'+p[1]+'.'+p[2];return d;}
   function fmtRange(d1,d2){return fmtDate(d2)+' ~ '+fmtDate(d1);}
 

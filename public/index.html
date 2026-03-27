@@ -53,6 +53,10 @@ table.trend tr:hover{background:#f8faff}
 table.trend .wk{background:#eef4ff;font-weight:700}
 table.trend .tot{background:#fff8e1;font-weight:700}
 table.trend th:last-child,table.trend td:last-child{font-weight:600}
+table.trend th{white-space:nowrap}
+table.trend td{white-space:nowrap}
+table.trend{border:1px solid #e0e0e0;border-radius:8px;overflow:hidden}
+table.trend thead th{position:sticky;top:0;z-index:2}
 
 .insight-inner{padding:0}
 .brand-tabs{display:flex;gap:0;background:#f8f9fa;border-bottom:1px solid #e8e8e8;overflow-x:auto;padding:0 8px}
@@ -175,7 +179,10 @@ table.trend th:last-child,table.trend td:last-child{font-weight:600}
     <div class="dash-inner">
       <div class="brand-grid" id="bGrid"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 8px">
-        <div class="stitle" style="margin:0">일별 판매 추이</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="stitle" style="margin:0">일별 판매량</div>
+          <a id="trendSheetLink" href="https://docs.google.com/spreadsheets/d/1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw/edit" target="_blank" style="font-size:11px;color:#34a853;font-weight:600;text-decoration:none">📊 시트로 보기</a>
+        </div>
       </div>
       <div class="trend-wrap"><table class="trend" id="tTrend"></table></div>
     </div>
@@ -240,20 +247,27 @@ async function loadAll(){
   }
 }
 
+var SHEET_URL = 'https://docs.google.com/spreadsheets/d/1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw/edit';
+
 function renderDash(){
   var g = document.getElementById('bGrid'), h='';
   var brands = Object.keys((D&&D.brands)||{});
   if(!brands.length){ g.innerHTML='<div class="empty">데이터가 없습니다.</div>'; return; }
   brands.forEach(function(b){
     var info = D.brands[b] || {};
-    h += '<div class="bcard" onclick="goInsight(\''+esc(b)+'\')">'
-      + '<div class="bn">'+esc(b)+'</div>'
+    var sheetLink = SHEET_URL + '#gid=' + ((D.sheetGids&&D.sheetGids[b])||'0');
+    h += '<div class="bcard">'
+      + '<div class="bn" onclick="goInsight(\''+esc(b)+'\')">'+esc(b)+'</div>'
       + '<div class="ro"><span class="la">오늘 판매</span><span class="va blue">'+num(info.todaySales||0)+'</span></div>'
       + '<div class="ro"><span class="la">7일 합계</span><span class="va">'+num(info.sum7||0)+'</span></div>'
-      + '<div class="ro"><span class="la">7일 일평균</span><span class="va">'+num(Math.round((info.dailyAvg||0)*10)/10)+'</span></div>'
-      + '<div class="ro"><span class="la">SKU</span><span class="va">'+num(info.skuCount||0)+'</span></div>'
+      + '<div class="ro"><span class="la">7일 평균</span><span class="va">'+num(Math.round((info.dailyAvg||0)*10)/10)+'</span></div>'
+      + '<div class="ro"><span class="la">SKU수</span><span class="va">'+num(info.skuCount||0)+'</span></div>'
       + '<div class="ro"><span class="la">재고</span><span class="va">'+num(info.stockSum||0)+'</span></div>'
       + '<div class="ro"><span class="la">품절</span><span class="va'+((info.outOfStockCount||0)>0?' red':'')+'">'+num(info.outOfStockCount||0)+'</span></div>'
+      + '<div style="display:flex;gap:6px;margin-top:10px">'
+      + '<a href="'+sheetLink+'" target="_blank" style="flex:1;text-align:center;padding:5px 0;background:#34a853;color:#fff;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none">📊 시트로 보기</a>'
+      + '<span class="btn btn-ghost" style="flex:1;text-align:center;padding:5px 0;font-size:11px" onclick="goInsight(\''+esc(b)+'\')">🔍 인사이트</span>'
+      + '</div>'
       + '</div>';
   });
   g.innerHTML = h;
@@ -264,23 +278,20 @@ function renderTrend(){
   var brands = Object.keys(D.brands||{});
   var dt = D.dailyTrend || {};
   var dn = ['일','월','화','수','목','금','토'];
+  var bColors = ['#e8f0fe','#fef7e0','#e8f5e9','#fce8e6','#f3e8fd'];
 
-  // 날짜 유틸
   function fmtD(d){return d.toISOString().slice(0,10);}
   function addD(iso,n){var x=new Date(iso+'T12:00:00Z');x.setUTCDate(x.getUTCDate()+n);return fmtD(x);}
   function dayOfWeek(iso){return new Date(iso+'T12:00:00Z').getUTCDay();}
+  function val(b,d){return (dt[b]&&dt[b][d])?Number(dt[b][d]):0;}
 
   var today = D.latestDate || D.dates[D.dates.length-1];
-  var todayDow = dayOfWeek(today); // 0=일 ~ 6=토
-
-  // 이번 주 일요일
+  var todayDow = dayOfWeek(today);
   var thisWeekSun = addD(today, -todayDow);
-  // 이전 3주 경계
   var prev1Sun = addD(thisWeekSun, -7);
   var prev2Sun = addD(thisWeekSun, -14);
   var prev3Sun = addD(thisWeekSun, -21);
 
-  // 주 날짜 배열 생성 (일~토, 또는 일~오늘)
   function weekDays(startSun, endDate){
     var arr=[], cur=startSun;
     for(var i=0;i<7;i++){
@@ -296,48 +307,76 @@ function renderTrend(){
   var prev2Days = weekDays(prev2Sun, addD(prev1Sun,-1));
   var prev3Days = weekDays(prev3Sun, addD(prev2Sun,-1));
 
-  // 값 조회
-  function val(b,d){return (dt[b]&&dt[b][d])?Number(dt[b][d]):0;}
-
-  // thead
-  var hd='<thead><tr><th>날짜</th><th>요일</th>';
-  brands.forEach(function(b){hd+='<th>'+esc(b)+'</th>';});
-  hd+='<th class="tot">합계</th></tr></thead>';
+  // 브랜드별 컬러 헤더
+  var hd='<thead>';
+  // 1행: 그룹 헤더
+  hd+='<tr><th rowspan="2" style="background:#f0f2f5;border-right:2px solid #ddd;min-width:70px">날짜</th>';
+  hd+='<th rowspan="2" style="background:#f0f2f5;border-right:2px solid #ddd;min-width:36px">요일</th>';
+  brands.forEach(function(b,i){
+    var bg = bColors[i % bColors.length];
+    hd+='<th style="background:'+bg+';border-left:2px solid #ddd;font-size:13px;font-weight:700;color:#333;padding:8px 4px">'+esc(b)+'</th>';
+  });
+  hd+='<th rowspan="2" style="background:#fff8e1;border-left:2px solid #ddd;font-weight:700;min-width:70px">합계</th></tr>';
+  // 2행: 서브 헤더 (판매량)
+  hd+='<tr>';
+  brands.forEach(function(b,i){
+    var bg = bColors[i % bColors.length];
+    hd+='<th style="background:'+bg+';font-size:10px;color:#888;font-weight:500;padding:2px 4px;border-left:2px solid #ddd">판매량</th>';
+  });
+  hd+='</tr></thead>';
 
   var bd='<tbody>';
 
-  // 일별 행 + 소계
   function renderWeekBlock(days, label){
     var sums={}, total=0, count=days.length;
     brands.forEach(function(b){sums[b]=0;});
+
     for(var i=days.length-1;i>=0;i--){
       var d=days[i], dw=dn[dayOfWeek(d)], rt=0;
-      bd+='<tr><td>'+d.substring(5)+'</td><td>'+dw+'</td>';
-      brands.forEach(function(b){
-        var v=val(b,d); bd+='<td>'+num(v)+'</td>'; rt+=v; sums[b]+=v;
+      var isWeekend = dayOfWeek(d)===0||dayOfWeek(d)===6;
+      var rowBg = isWeekend ? '#fafbfc' : '#fff';
+      bd+='<tr style="background:'+rowBg+'">';
+      bd+='<td style="border-right:2px solid #eee;font-weight:600">'+d.substring(5)+'</td>';
+      bd+='<td style="border-right:2px solid #eee;color:'+(dayOfWeek(d)===0?'#ea4335':dayOfWeek(d)===6?'#1a73e8':'#666')+'">'+dw+'</td>';
+      brands.forEach(function(b,bi){
+        var v=val(b,d);
+        var bg = v===0 ? '#f9f9f9' : '';
+        var color = v===0 ? '#ccc' : '#333';
+        bd+='<td style="border-left:2px solid #eee;'+(bg?'background:'+bg+';':'')+'color:'+color+';font-weight:'+(v>0?'600':'400')+'">'+num(v)+'</td>';
+        rt+=v; sums[b]+=v;
       });
-      bd+='<td class="tot">'+num(rt)+'</td></tr>';
+      bd+='<td class="tot" style="border-left:2px solid #ddd">'+num(rt)+'</td></tr>';
       total+=rt;
     }
-    bd+='<tr class="wk"><td colspan="2">'+(label||'소계')+' ('+count+'일)</td>';
-    brands.forEach(function(b){bd+='<td>'+num(sums[b])+'</td>';});
-    bd+='<td class="tot">'+num(total)+'</td></tr>';
+
+    // 소계행
+    var avgTotal = count>0 ? Math.round(total/count) : 0;
+    bd+='<tr style="background:#e8f0fe;border-top:2px solid #1a73e8;border-bottom:2px solid #1a73e8">';
+    bd+='<td colspan="2" style="text-align:left;font-weight:700;color:#1a73e8;padding:8px 10px;border-right:2px solid #c5d8f0">'+label+' ('+count+'일)</td>';
+    brands.forEach(function(b,bi){
+      var avg = count>0 ? Math.round(sums[b]/count) : 0;
+      bd+='<td style="border-left:2px solid #c5d8f0;padding:4px 8px">'
+        +'<div style="font-weight:700;font-size:13px;color:#1a73e8">'+num(sums[b])+'</div>'
+        +'<div style="font-size:10px;color:#666;font-weight:500">일평균 '+num(avg)+'</div>'
+        +'</td>';
+    });
+    bd+='<td style="border-left:2px solid #c5d8f0;padding:4px 8px">'
+      +'<div style="font-weight:700;font-size:13px;color:#1a73e8">'+num(total)+'</div>'
+      +'<div style="font-size:10px;color:#666;font-weight:500">일평균 '+num(avgTotal)+'</div>'
+      +'</td></tr>';
   }
 
-  // PART 1: 이번 주
   if(thisWeekDays.length) renderWeekBlock(thisWeekDays, '이번 주');
-  // PART 2: 이전 3주
-  if(prev1Days.length) renderWeekBlock(prev1Days, '이전 1주');
-  if(prev2Days.length) renderWeekBlock(prev2Days, '이전 2주');
-  if(prev3Days.length) renderWeekBlock(prev3Days, '이전 3주');
+  if(prev1Days.length) renderWeekBlock(prev1Days, '지난 1주');
+  if(prev2Days.length) renderWeekBlock(prev2Days, '지난 2주');
+  if(prev3Days.length) renderWeekBlock(prev3Days, '지난 3주');
 
-  // PART 3: 그 이전 주차별 요약
-  var cutoff = prev3Sun; // 이 날짜 미만의 데이터
+  // 이전 주간 요약
+  var cutoff = prev3Sun;
   var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
   if(olderDates.length>0){
-    bd+='<tr><td colspan="'+(brands.length+3)+'" style="background:#e8f0fe;text-align:center;font-weight:700;font-size:12px;color:#1a73e8;padding:8px;">── 이전 주차별 요약 ──</td></tr>';
+    bd+='<tr><td colspan="'+(brands.length+3)+'" style="background:#f0f2f5;text-align:center;font-weight:700;font-size:12px;color:#888;padding:10px;border-top:3px solid #ddd">이전 주간 요약</td></tr>';
 
-    // 주차 그룹핑 (최신순)
     var weeks=[], curWeek=null;
     for(var oi=olderDates.length-1;oi>=0;oi--){
       var od=olderDates[oi], odow=dayOfWeek(od);
@@ -353,17 +392,31 @@ function renderTrend(){
     }
     if(curWeek&&curWeek.days>0) weeks.push(curWeek);
 
-    bd+='<tr style="background:#f8f9fa"><th>기간</th><th>일수</th>';
-    brands.forEach(function(b){bd+='<th>'+esc(b)+'</th>';});
-    bd+='<th>합계</th><th>일평균</th></tr>';
+    // 주간 요약 헤더
+    bd+='<tr style="background:#f8f9fa">';
+    bd+='<th style="text-align:left;border-right:2px solid #ddd">기간</th>';
+    bd+='<th style="border-right:2px solid #ddd">일수</th>';
+    brands.forEach(function(b,i){
+      var bg = bColors[i % bColors.length];
+      bd+='<th style="background:'+bg+';border-left:2px solid #ddd">'+esc(b)+'</th>';
+    });
+    bd+='<th style="background:#fff8e1;border-left:2px solid #ddd">합계</th>';
+    bd+='<th style="background:#e8f0fe;border-left:2px solid #ddd">일평균</th></tr>';
 
     for(var w=0;w<weeks.length;w++){
       var wk=weeks[w], avg=wk.days>0?Math.round(wk.total/wk.days):0;
-      bd+='<tr class="wk"><td style="text-align:left">'+wk.end.substring(5)+' ~ '+wk.start.substring(5)+'</td>'
-        +'<td style="text-align:center">'+wk.days+'일</td>';
-      brands.forEach(function(b){bd+='<td>'+num(wk.brands[b])+'</td>';});
-      bd+='<td class="tot">'+num(wk.total)+'</td>'
-        +'<td style="text-align:right;color:#1a73e8;font-weight:700">'+num(avg)+'</td></tr>';
+      bd+='<tr style="background:#fafbfc">';
+      bd+='<td style="text-align:left;font-weight:600;border-right:2px solid #eee">'+wk.end.substring(5)+' ~ '+wk.start.substring(5)+'</td>';
+      bd+='<td style="text-align:center;color:#888;border-right:2px solid #eee">'+wk.days+'일</td>';
+      brands.forEach(function(b,bi){
+        var bAvg = wk.days>0?Math.round(wk.brands[b]/wk.days):0;
+        bd+='<td style="border-left:2px solid #eee;padding:4px 8px">'
+          +'<div style="font-weight:600">'+num(wk.brands[b])+'</div>'
+          +'<div style="font-size:10px;color:#888">일 '+num(bAvg)+'</div>'
+          +'</td>';
+      });
+      bd+='<td class="tot" style="border-left:2px solid #ddd">'+num(wk.total)+'</td>';
+      bd+='<td style="text-align:right;color:#1a73e8;font-weight:700;border-left:2px solid #ddd">'+num(avg)+'</td></tr>';
     }
   }
 
@@ -386,7 +439,10 @@ function renderInsight(){
     var avgP = CTRL.period>0 ? Math.round(sumP/CTRL.period) : 0;
 
     ch+='<div class="brand-content'+(idx===0?' active':'')+'" id="bc_'+esc(b)+'">';
-    ch+='<div class="brand-hdr"><h2>'+esc(b)+'</h2></div>';
+      var sheetLink2 = SHEET_URL + '#gid=' + ((D.sheetGids&&D.sheetGids[b])||'0');
+    ch+='<div class="brand-hdr"><h2>'+esc(b)+'</h2>'
+      +'<a href="'+sheetLink2+'" target="_blank" class="btn btn-blue" style="font-size:12px;padding:5px 14px;text-decoration:none">📊 Google 시트에서 자세히 보기</a>'
+      +'</div>';
     ch+='<div class="summary-row">'
       +'<div class="scard"><div class="sl">오늘 판매</div><div class="sv blue">'+num(info.todaySales||0)+'</div></div>'
       +'<div class="scard"><div class="sl" id="sumPeriodLabel_'+esc(b)+'">'+CTRL.period+'일 합계</div><div class="sv" id="sumPeriodVal_'+esc(b)+'">'+num(sumP)+'</div></div>'

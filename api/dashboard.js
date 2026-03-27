@@ -1,4 +1,6 @@
 const { getDb } = require('../lib/db');
+const { google } = require('googleapis');
+const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
 function addDays(isoDate, delta) {
   const d = new Date(`${isoDate}T12:00:00.000Z`);
@@ -42,6 +44,7 @@ module.exports = async (req, res) => {
 
     // ── 데이터 없음 또는 유효하지 않은 날짜 처리 ──
     if (!rawLatest || String(rawLatest).trim() === '') {
+      
       return res.status(200).json({
         brands: {},
         insights: [],
@@ -281,6 +284,24 @@ module.exports = async (req, res) => {
       }
     }
 
+    // ── 시트 gid 수집 ──
+    let sheetGids = {};
+    try {
+      let gkey = process.env.GOOGLE_PRIVATE_KEY || '';
+      if (!gkey.includes('\n') && gkey.includes('\\n')) gkey = gkey.replace(/\\n/g, '\n');
+      const gauth = new google.auth.JWT({
+        email: process.env.GOOGLE_CLIENT_EMAIL,
+        key: gkey,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+      });
+      await gauth.authorize();
+      const sheetsApi = google.sheets({ version: 'v4', auth: gauth });
+      const meta = await sheetsApi.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+      for (const s of meta.data.sheets) {
+        sheetGids[s.properties.title] = s.properties.sheetId;
+      }
+    } catch (e) { console.error('sheetGids error:', e.message); }
+
     return res.status(200).json({
       brands,
       insights,
@@ -289,6 +310,7 @@ module.exports = async (req, res) => {
       latestDate,
       flags,
       brandInsights,
+      sheetGids,
     });
   } catch (e) {
     console.error(e);

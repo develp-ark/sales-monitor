@@ -211,35 +211,21 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;cur
 <div class="wrap">
   <!-- Upload buttons -->
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <button class="btn btn-blue" onclick="document.getElementById('csvFile').click()">CSV 업로드</button>
-    <button class="btn" onclick="document.getElementById('skuManageFile').click()"
-      style="background:#F2F3F5;color:#333;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
-      SKU 관리
-    </button>
+    <button class="btn btn-blue" onclick="document.getElementById('anyFile').click()">파일 업로드</button>
     <button class="btn" onclick="location.reload()"
       style="background:#fff;color:#6B7684;border:1px solid #E5E8EB;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer">
       ↻ 새로고침
     </button>
-    <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleCSV(this.files[0]);this.value=''">
-    <input type="file" id="skuManageFile" accept=".csv" style="display:none" onchange="uploadSkuManage(this.files[0]);this.value=''">
+    <input type="file" id="anyFile" accept=".csv" multiple style="display:none" onchange="handleFiles(this.files);this.value=''">
     <span id="uploadStatus" style="font-size:12px;color:#8B95A1"></span>
   </div>
-  <!-- Drag & Drop zone -->
-  <div style="display:flex;gap:12px;margin-top:12px">
-    <div id="dropCSV"
-      style="flex:1;border:2px dashed #D1D6DB;border-radius:14px;padding:28px 16px;text-align:center;
-      background:#FAFBFC;transition:border-color .2s,background .2s;cursor:pointer"
-      onclick="document.getElementById('csvFile').click()">
-      <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:4px">📦 판매 CSV</div>
-      <div style="font-size:12px;color:#8B95A1">파일을 드래그하거나 클릭</div>
-    </div>
-    <div id="dropSKUManage"
-      style="flex:1;border:2px dashed #D1D6DB;border-radius:14px;padding:28px 16px;text-align:center;
-      background:#FAFBFC;transition:border-color .2s,background .2s;cursor:pointer"
-      onclick="document.getElementById('skuManageFile').click()">
-      <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:4px">📋 SKU 관리</div>
-      <div style="font-size:12px;color:#8B95A1">관리 대상 SKU 등록</div>
-    </div>
+  <!-- Drop zone -->
+  <div id="dropZone"
+    style="border:2px dashed #D1D6DB;border-radius:14px;padding:32px 16px;text-align:center;
+    background:#FAFBFC;transition:border-color .2s,background .2s;cursor:pointer;margin-top:12px"
+    onclick="document.getElementById('anyFile').click()">
+    <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:4px">📁 CSV 파일 업로드</div>
+    <div style="font-size:12px;color:#8B95A1">판매 CSV · SKU 관리 CSV 자동 인식</div>
   </div>
   <div class="log" id="logBox"></div>
 
@@ -815,8 +801,8 @@ async function saveFlag(){
   }catch(e){ alert('오류: '+e.message); }
 }
 
-function setupDrop(dropId, handler){
-  var el=document.getElementById(dropId);
+(function(){
+  var el=document.getElementById('dropZone');
   if(!el)return;
   ['dragenter','dragover'].forEach(function(ev){
     el.addEventListener(ev,function(e){e.preventDefault();el.style.borderColor='#3182F6';el.style.background='#EBF3FE';});
@@ -825,43 +811,85 @@ function setupDrop(dropId, handler){
     el.addEventListener(ev,function(e){e.preventDefault();el.style.borderColor='#D1D6DB';el.style.background='#FAFBFC';});
   });
   el.addEventListener('drop',function(e){
-    var f=e.dataTransfer.files[0];
-    if(f) handler(f);
+    if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   });
+})();
+
+function detectCsvType(text){
+  var firstLine=text.split('\n')[0].toLowerCase();
+  if(firstLine.indexOf('pid')!==-1 || firstLine.indexOf('iid')!==-1 || firstLine.indexOf('vid')!==-1
+    || firstLine.indexOf('플래그')!==-1 || firstLine.indexOf('flag')!==-1){
+    return 'sku-manage';
+  }
+  return 'sales';
 }
 
-setupDrop('dropCSV', handleCSV);
-setupDrop('dropSKUManage', uploadSkuManage);
-
-function handleCSV(file){
-  if(!file)return;
+async function handleFiles(files){
   var st=document.getElementById('uploadStatus');
-  if(st) st.textContent='업로드 중...';
-  var fd=new FormData();
-  fd.append('file',file);
-  fetch('/api/upload',{method:'POST',body:fd})
-    .then(function(r){return r.json()})
-    .then(function(d){
-      if(st) st.textContent='완료: '+(d.rows||0)+'행';
-      setTimeout(function(){location.reload();},1500);
-    })
-    .catch(function(e){if(st) st.textContent='오류: '+e.message;});
+  var total=files.length;
+  var salesFiles=[];
+  var skuFiles=[];
+
+  for(var i=0;i<total;i++){
+    var text=await readFileText(files[i]);
+    if(detectCsvType(text)==='sku-manage'){
+      skuFiles.push(files[i]);
+    }else{
+      salesFiles.push(files[i]);
+    }
+  }
+
+  if(st) st.textContent='판매 '+salesFiles.length+'개, SKU관리 '+skuFiles.length+'개 감지';
+
+  var done=0;
+  var totalAll=salesFiles.length+skuFiles.length;
+  var totalRows=0;
+  var totalImported=0;
+
+  for(var i=0;i<salesFiles.length;i++){
+    done++;
+    if(st) st.textContent='업로드 중 ('+done+'/'+totalAll+') '+salesFiles[i].name;
+    try{
+      var fd=new FormData();
+      fd.append('file',salesFiles[i]);
+      var r=await fetch('/api/upload',{method:'POST',body:fd});
+      var d=await r.json();
+      totalRows+=(d.rows||0);
+    }catch(e){
+      if(st) st.textContent='오류: '+salesFiles[i].name+' - '+e.message;
+      return;
+    }
+  }
+
+  for(var i=0;i<skuFiles.length;i++){
+    done++;
+    if(st) st.textContent='SKU 등록 중 ('+done+'/'+totalAll+') '+skuFiles[i].name;
+    try{
+      var fd=new FormData();
+      fd.append('file',skuFiles[i]);
+      var r=await fetch('/api/upload-sku-manage',{method:'POST',body:fd});
+      var d=await r.json();
+      totalImported+=(d.imported||0);
+    }catch(e){
+      if(st) st.textContent='오류: '+skuFiles[i].name+' - '+e.message;
+      return;
+    }
+  }
+
+  var msg='완료: ';
+  if(totalRows) msg+=totalRows+'행 판매데이터';
+  if(totalRows&&totalImported) msg+=', ';
+  if(totalImported) msg+=totalImported+'개 SKU 등록';
+  if(st) st.textContent=msg;
+  setTimeout(function(){location.reload();},1500);
 }
 
-
-function uploadSkuManage(file){
-  if(!file)return;
-  var st=document.getElementById('uploadStatus');
-  if(st) st.textContent='SKU 등록 중...';
-  var fd=new FormData();
-  fd.append('file',file);
-  fetch('/api/upload-sku-manage',{method:'POST',body:fd})
-    .then(function(r){return r.json()})
-    .then(function(d){
-      if(st) st.textContent='SKU 등록 완료: '+(d.imported||0)+'개';
-      setTimeout(function(){location.reload();},1500);
-    })
-    .catch(function(e){if(st) st.textContent='오류: '+e.message;});
+function readFileText(file){
+  return new Promise(function(resolve){
+    var reader=new FileReader();
+    reader.onload=function(e){resolve(e.target.result)};
+    reader.readAsText(file);
+  });
 }
 
 function getSkuUrl(r){

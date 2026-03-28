@@ -480,8 +480,12 @@ module.exports = async (req, res) => {
       let chain = Promise.resolve();
 
       bb.on('file', (fieldname, fileStream, info) => {
-        const filename = (info && info.filename) || '';
-        fileBrandFromName = detectBrandFromFilename(filename);
+              const filename = (info && info.filename) || '';
+              console.log('[UPLOAD] raw filename:', filename);
+              console.log('[UPLOAD] info object:', JSON.stringify(info));
+              fileBrandFromName = detectBrandFromFilename(filename);
+              console.log('[UPLOAD] detected brand:', fileBrandFromName);
+
 
         const parser = parse({
           columns: pickColumns,

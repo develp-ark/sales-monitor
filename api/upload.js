@@ -351,12 +351,14 @@ const BATCH_SIZE = 800;
 
 function detectBrandFromFilename(name) {
   if (!name) return null;
-  const lower = name.toLowerCase();
-  if (name.includes('건우') || lower.includes('gunu')) return '건우코리아';
-  if (name.includes('아리코') || lower.includes('arico')) return '아리코';
-  if (name.includes('윰') || lower.includes('yum')) return '윰';
+  const n = name.normalize('NFC');
+  const lower = n.toLowerCase();
+  if (n.includes('건우') || lower.includes('gunu')) return '건우코리아';
+  if (n.includes('아리코') || lower.includes('arico')) return '아리코';
+  if (n.includes('윰') || lower.includes('yum')) return '윰';
   return null;
 }
+
 
 function normalizeHeader(cell) {
   const s = String(cell ?? '')

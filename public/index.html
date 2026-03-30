@@ -473,14 +473,28 @@ function renderTrend(){
       +'</td></tr>';
   }
 
-  if(thisWeekDays.length) renderWeekBlock(thisWeekDays, '이번 주');
-  if(prev1Days.length) renderWeekBlock(prev1Days, '지난 1주');
-  if(prev2Days.length) renderWeekBlock(prev2Days, '지난 2주');
-  if(prev3Days.length) renderWeekBlock(prev3Days, '지난 3주');
-
-    // 당월 1일 이후는 일별, 이전은 주간 요약
+   // 당월 1일
   var currentMonth1st = latestDate.slice(0, 8) + '01';
-  var cutoff = currentMonth1st < prev3Sun ? currentMonth1st : prev3Sun;
+  
+  // 당월 날짜를 주 단위로 분할하여 일별 표시
+  var monthDays = (D.dates||[]).filter(function(d){ return d >= currentMonth1st && d <= today; }).sort();
+  var monthWeeks = [];
+  var tw = [];
+  for(var mi=0; mi<monthDays.length; mi++){
+    tw.push(monthDays[mi]);
+    if(dayOfWeek(monthDays[mi]) === 6 || mi === monthDays.length - 1){
+      monthWeeks.push(tw);
+      tw = [];
+    }
+  }
+  // 최신 주부터 표시
+  monthWeeks.reverse();
+  for(var mw=0; mw<monthWeeks.length; mw++){
+    var wLabel = mw === 0 ? '이번 주' : '지난 ' + mw + '주';
+    renderWeekBlock(monthWeeks[mw], wLabel);
+  }
+
+  var cutoff = currentMonth1st;
 
   var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
   if(olderDates.length>0){

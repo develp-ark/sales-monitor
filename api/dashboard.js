@@ -26,9 +26,6 @@ const PERIODS = [
   { key: '7', days: 7 },
   { key: '14', days: 14 },
   { key: '30', days: 30 },
-  { key: '90', days: 90 },
-  { key: '180', days: 180 },
-  { key: '365', days: 365 },
 ];
 
 // 메모리 캐시
@@ -64,7 +61,7 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Invalid date: "${rawLatest}"` });
     }
 
-    const start365 = addDays(latestDate, -364);
+    const start365 = addDays(latestDate, -29);
     const dates = dateRangeInclusive(start365, latestDate);
 
     // ── 핵심 쿼리 (병렬) ──

@@ -999,6 +999,11 @@ function renderSmOverview(){
       && r.last_collected && r.last_collected.slice(0,10)===today;
   });
 
+  var discontinued = smItems.filter(function(r){
+    return r.active && r.current_price !== null && r.current_price !== undefined
+      && (Number(r.current_price) === 0 || (r.memo && r.memo.indexOf('판매중단') >= 0));
+  });
+
   var h = '';
 
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">';
@@ -1016,6 +1021,11 @@ function renderSmOverview(){
   h += '<div style="background:'+(priceChanged.length>0?'#FEECEE':'#fff')+';border:1px solid '+(priceChanged.length>0?'#F04452':'#E5E8EB')+';border-radius:12px;padding:16px">';
   h += '<div style="font-size:12px;color:#8B95A1;margin-bottom:8px">금일 가격 변동</div>';
   h += '<div style="font-size:28px;font-weight:700;color:'+(priceChanged.length>0?'#F04452':'#8B95A1')+'">'+priceChanged.length+'<span style="font-size:14px;font-weight:400;color:#8B95A1">건</span></div>';
+  h += '</div>';
+
+  h += '<div style="background:'+(discontinued.length>0?'#FFF5F5':'#fff')+';border:1px solid '+(discontinued.length>0?'#F04452':'#E5E8EB')+';border-radius:12px;padding:16px">';
+  h += '<div style="font-size:12px;color:#8B95A1;margin-bottom:8px">판매중단 감지</div>';
+  h += '<div style="font-size:28px;font-weight:700;color:'+(discontinued.length>0?'#F04452':'#8B95A1')+'">'+discontinued.length+'<span style="font-size:14px;font-weight:400;color:#8B95A1">건</span></div>';
   h += '</div>';
 
   h += '</div>';
@@ -1044,19 +1054,34 @@ function renderSmOverview(){
   var flags = [...new Set(smItems.map(function(r){return r.flag}).filter(Boolean))].sort();
   if(flags.length > 0){
     h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
-    h += '<div style="font-size:14px;font-weight:700;margin-bottom:12px">플래그별 수집 현황</div>';
-    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-    for(var i=0;i<flags.length;i++){
-      var f = flags[i];
-      var fs = flagStyle[f]||{bg:'#F2F3F5',color:'#6B7684'};
-      var fAll = smItems.filter(function(r){return r.flag===f});
-      var fToday = todayItems.filter(function(r){return r.flag===f});
-      h += '<div style="background:'+fs.bg+';border-radius:8px;padding:10px 16px;min-width:120px">';
-      h += '<div style="font-size:11px;color:'+fs.color+';font-weight:600;margin-bottom:4px">'+esc(f)+'</div>';
-      h += '<div style="font-size:18px;font-weight:700;color:'+fs.color+'">'+fToday.length+' <span style="font-size:12px;font-weight:400">/ '+fAll.length+'</span></div>';
-      h += '</div>';
+    h += '<div style="font-size:14px;font-weight:700;margin-bottom:16px">플래그별 수집 현황</div>';
+
+    for(var bi=0;bi<brands.length;bi++){
+      var b = brands[bi];
+      var bc = brandColor[b]||defBC;
+      var bFlags = [...new Set(smItems.filter(function(r){return r.brand===b && r.flag}).map(function(r){return r.flag}))].sort();
+      if(bFlags.length === 0) continue;
+
+      h += '<div style="margin-bottom:16px;'+(bi<brands.length-1?'border-bottom:1px solid #F2F4F6;padding-bottom:16px;':'')+'">';
+      h += '<div style="font-size:13px;font-weight:600;color:'+bc.color+';margin-bottom:8px">'+esc(b)+'</div>';
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+
+      for(var fi=0;fi<bFlags.length;fi++){
+        var f = bFlags[fi];
+        var fs = flagStyle[f]||{bg:'#F2F3F5',color:'#6B7684'};
+        var fAll = smItems.filter(function(r){return r.brand===b && r.flag===f});
+        var fToday = todayItems.filter(function(r){return r.brand===b && r.flag===f});
+
+        h += '<div style="background:'+fs.bg+';border-radius:8px;padding:10px 16px;min-width:120px">';
+        h += '<div style="font-size:11px;color:'+fs.color+';font-weight:600;margin-bottom:4px">'+esc(f)+'</div>';
+        h += '<div style="font-size:18px;font-weight:700;color:'+fs.color+'">'+fToday.length+' <span style="font-size:12px;font-weight:400">/ '+fAll.length+'</span></div>';
+        h += '</div>';
+      }
+
+      h += '</div></div>';
     }
-    h += '</div></div>';
+
+    h += '</div>';
   }
 
   h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
@@ -1085,6 +1110,47 @@ function renderSmOverview(){
     h += '</tbody></table>';
   }
   h += '</div>';
+
+  // ── 판매중단 감지 ──
+  if(discontinued.length > 0){
+    h += '<div style="background:#FFF5F5;border:2px solid #F04452;border-radius:12px;padding:16px;margin-bottom:20px">';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+    h += '<span style="font-size:20px">⚠️</span>';
+    h += '<span style="font-size:14px;font-weight:700;color:#F04452">판매중단 감지 ('+discontinued.length+'건)</span>';
+    h += '</div>';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    h += '<thead><tr style="background:#F04452;color:#fff">';
+    h += '<th style="padding:8px 12px;text-align:left;border-radius:6px 0 0 0">브랜드</th>';
+    h += '<th style="padding:8px 12px;text-align:center">SKU ID</th>';
+    h += '<th style="padding:8px 12px;text-align:left">상품명</th>';
+    h += '<th style="padding:8px 12px;text-align:center">플래그</th>';
+    h += '<th style="padding:8px 12px;text-align:center">감지일</th>';
+    h += '<th style="padding:8px 12px;text-align:center;border-radius:0 6px 0 0">확인</th>';
+    h += '</tr></thead><tbody>';
+    for(var i=0;i<discontinued.length;i++){
+      var ds = discontinued[i];
+      var dbc = brandColor[ds.brand]||defBC;
+      var dfs = flagStyle[ds.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+      var dUrl = ds.product_url || ('https://www.coupang.com/vp/products/'+ds.sku_id);
+      var detectedDate = ds.price_checked_at ? ds.price_checked_at.slice(0,10) : (ds.last_collected ? ds.last_collected.slice(0,10) : '-');
+      h += '<tr style="border-top:1px solid #FECDD2;background:'+(i%2===0?'#FFF5F5':'#FFEBEE')+'">';
+      h += '<td style="padding:8px 12px"><span style="color:'+dbc.color+';font-weight:600">'+esc(ds.brand)+'</span></td>';
+      h += '<td style="padding:8px 12px;text-align:center;font-family:monospace">'+esc(ds.sku_id)+'</td>';
+      h += '<td style="padding:8px 12px">'+esc(ds.sku_name||'')+'</td>';
+      h += '<td style="padding:8px 12px;text-align:center">';
+      if(ds.flag){
+        h += '<span style="background:'+dfs.bg+';color:'+dfs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(ds.flag)+'</span>';
+      } else {
+        h += '-';
+      }
+      h += '</td>';
+      h += '<td style="padding:8px 12px;text-align:center;color:#666">'+detectedDate+'</td>';
+      h += '<td style="padding:8px 12px;text-align:center"><a href="'+dUrl+'" target="_blank" style="color:#F04452;font-weight:600;text-decoration:none;border:1px solid #F04452;border-radius:4px;padding:3px 10px;font-size:11px">쿠팡 확인</a></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table>';
+    h += '</div>';
+  }
 
   // ── 다음 수집 예정 (날짜/브랜드/플래그 그룹) ──
   h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';

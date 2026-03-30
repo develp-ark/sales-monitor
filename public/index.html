@@ -399,6 +399,8 @@ function renderTrend(){
   function fmtRange(d1,d2){return fmtDate(d2)+' ~ '+fmtDate(d1);}
 
   var today = D.latestDate || D.dates[D.dates.length-1];
+  var currentMonth1st = (D.latestDate || today).slice(0, 8) + '01';
+  var cutoff = currentMonth1st;
   var todayDow = dayOfWeek(today);
   var thisWeekSun = addD(today, -todayDow);
   var prev1Sun = addD(thisWeekSun, -7);

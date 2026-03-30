@@ -91,11 +91,20 @@ module.exports = async (req, res) => {
     let watchList = { rows: [] };
     let skuManageMap = {};
     try {
-      flagsRows = await db.execute('SELECT sku_id, sku_name, brand, flag, memo FROM sku_manage WHERE active = 1');
-      watchList = flagsRows;
       const smRows = await db.execute('SELECT * FROM sku_manage WHERE active = 1');
-      for (const r of smRows.rows) skuManageMap[r.sku_id] = r;
-    } catch (e) { console.log('sku_manage:', e.message); }
+      if (smRows && smRows.rows && Array.isArray(smRows.rows)) {
+        flagsRows = { rows: smRows.rows };
+        watchList = { rows: smRows.rows };
+        for (const r of smRows.rows) {
+          if (r && r.sku_id) skuManageMap[r.sku_id] = r;
+        }
+      }
+    } catch (e) {
+      console.log('sku_manage:', e.message);
+      flagsRows = { rows: [] };
+      watchList = { rows: [] };
+      skuManageMap = {};
+    }
 
     // ── brands 집계 ──
     const todayMap = Object.fromEntries(todayAgg.rows.map(r => [r.brand, Number(r.s)||0]));
@@ -171,8 +180,10 @@ module.exports = async (req, res) => {
       args: [start365, latestDate],
     });
 
+    const allSkuDailyRows = (allSkuDaily && allSkuDaily.rows && Array.isArray(allSkuDaily.rows)) ? allSkuDaily.rows : [];
+
     const skuDailyMap = {};
-    for (const row of allSkuDaily.rows) {
+    for (const row of allSkuDailyRows) {
       const k = `${row.brand}||${row.sku_id}`;
       if (!skuDailyMap[k]) skuDailyMap[k] = { brand: row.brand, sku_id: String(row.sku_id), sku_name: row.sku_name ?? '', dates: {} };
       skuDailyMap[k].dates[row.date] = Number(row.s)||0;

@@ -940,91 +940,249 @@ function getSkuUrl(r){
   return null;
 }
 
+// ── SKU 관리 전역 변수 ──
+var smItems = [];
+var smActiveBrand = '';
+var smActiveFlag = '';
+var brandColor = {
+  '건우코리아':{color:'#3182F6',bg:'#EBF3FE'},
+  '아리코':{color:'#00B493',bg:'#E8FAF6'},
+  '윰':{color:'#F04452',bg:'#FEECEE'}
+};
+var defBC = {color:'#6B7684',bg:'#F2F3F5'};
+var flagStyle = {
+  '신규':{bg:'#EBF3FE',color:'#3182F6'},
+  '주목':{bg:'#FFF3E0',color:'#E65100'},
+  '주의':{bg:'#FEECEE',color:'#F04452'},
+  'TOP':{bg:'#FFF3E0',color:'#E65100'},
+  '중요':{bg:'#FEECEE',color:'#F04452'}
+};
+
 async function renderSkuManage(){
   var resp = await fetch('/api/sku-manage');
   var result = await resp.json();
-  var items = (result.ok && result.data) ? result.data : [];
+  smItems = (result.ok && result.data) ? result.data : [];
 
-  var brands = [...new Set(items.map(function(r){return r.brand}))].filter(Boolean).sort();
-  var flags = [...new Set(items.map(function(r){return r.flag}).filter(Boolean))].sort();
+  var brands = [...new Set(smItems.map(function(r){return r.brand}))].filter(Boolean).sort();
+  var today = new Date().toISOString().slice(0,10);
 
-  var brandColor = {
-    '건우코리아':{color:'#3182F6',bg:'#EBF3FE'},
-    '아리코':{color:'#00B493',bg:'#E8FAF6'},
-    '윰':{color:'#F04452',bg:'#FEECEE'}
-  };
-  var defBC = {color:'#6B7684',bg:'#F2F3F5'};
+  var h = '';
 
-  var h='';
-
-  h+='<div id="smBrandTabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #E5E8EB;padding-bottom:0">';
-  h+='<button class="sm-brand-tab active" data-brand="" onclick="smSelectBrand(this,\'\')" style="padding:10px 18px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid #191F28;margin-bottom:-2px;color:#191F28">전체 <span style="font-size:11px;font-weight:400;color:#8B95A1">('+items.length+')</span></button>';
+  h += '<div id="smBrandTabs" style="display:flex;gap:0;border-bottom:2px solid #E5E8EB;margin-bottom:0">';
+  h += '<button class="sm-brand-tab active" data-brand="" onclick="smSelectBrand(this,\'\')" style="padding:12px 20px;border:none;background:none;font-size:14px;font-weight:700;cursor:pointer;border-bottom:3px solid #191F28;margin-bottom:-2px;color:#191F28">📊 전체 현황</button>';
   for(var i=0;i<brands.length;i++){
     var bc = brandColor[brands[i]]||defBC;
-    var cnt = items.filter(function(r){return r.brand===brands[i]}).length;
-    h+='<button class="sm-brand-tab" data-brand="'+esc(brands[i])+'" onclick="smSelectBrand(this,\''+esc(brands[i])+'\')" style="padding:10px 18px;border:none;background:none;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#8B95A1">'+esc(brands[i])+' <span style="font-size:11px;font-weight:400">('+cnt+')</span></button>';
+    var cnt = smItems.filter(function(r){return r.brand===brands[i]}).length;
+    h += '<button class="sm-brand-tab" data-brand="'+esc(brands[i])+'" onclick="smSelectBrand(this,\''+esc(brands[i])+'\')" style="padding:12px 20px;border:none;background:none;font-size:13px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;color:#8B95A1">'+esc(brands[i])+' ('+cnt+')</button>';
   }
-  h+='</div>';
+  h += '</div>';
 
-  h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">';
+  h += '<div id="smContent" style="padding-top:16px"></div>';
 
-  h+='<div id="smFlagChips" style="display:flex;gap:4px;flex-wrap:wrap">';
-  h+='<button class="sm-flag-chip active" data-flag="" onclick="smSelectFlag(this,\'\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#191F28;color:#fff;font-size:12px;cursor:pointer">전체</button>';
-  var flagStyle = {'신규':{bg:'#EBF3FE',color:'#3182F6',border:'#3182F6'},'주목':{bg:'#FFF3E0',color:'#E65100',border:'#E65100'},'주의':{bg:'#FEECEE',color:'#F04452',border:'#F04452'},'TOP':{bg:'#FFF3E0',color:'#E65100',border:'#E65100'},'중요':{bg:'#FEECEE',color:'#F04452',border:'#F04452'}};
-  for(var i=0;i<flags.length;i++){
-    var fs=flagStyle[flags[i]]||{bg:'#F2F3F5',color:'#6B7684',border:'#D1D6DB'};
-    var fcnt=items.filter(function(r){return r.flag===flags[i]}).length;
-    h+='<button class="sm-flag-chip" data-flag="'+esc(flags[i])+'" onclick="smSelectFlag(this,\''+esc(flags[i])+'\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#6B7684;font-size:12px;cursor:pointer">'+esc(flags[i])+' ('+fcnt+')</button>';
-  }
-  var noFlagCnt=items.filter(function(r){return !r.flag}).length;
-  if(noFlagCnt>0){
-    h+='<button class="sm-flag-chip" data-flag="__none__" onclick="smSelectFlag(this,\'__none__\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#8B95A1;font-size:12px;cursor:pointer">미지정 ('+noFlagCnt+')</button>';
-  }
-  h+='</div>';
+  document.getElementById('skuManageContent').innerHTML = h;
+  renderSmOverview();
+}
 
-  h+='<div style="flex:1"></div>';
-  h+='<input id="smSearch" oninput="filterSkuManage()" placeholder="SKU ID 또는 상품명 검색" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px;min-width:200px;max-width:300px">';
-  h+='<span style="font-size:12px;color:#8B95A1" id="smCount">'+items.length+'개</span>';
-  h+='</div>';
+function renderSmOverview(){
+  var today = new Date().toISOString().slice(0,10);
+  var brands = [...new Set(smItems.map(function(r){return r.brand}))].filter(Boolean).sort();
 
-  h+='<div id="smCollectSummary" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">';
-  var today=new Date().toISOString().slice(0,10);
-  var todayCollected=items.filter(function(r){return r.last_collected && r.last_collected.slice(0,10)===today}).length;
-  var needCollect=items.filter(function(r){
+  var todayItems = smItems.filter(function(r){return r.last_collected && r.last_collected.slice(0,10)===today});
+  var needCollect = smItems.filter(function(r){
     if(!r.collect_cycle||r.collect_cycle<=0) return false;
     if(!r.last_collected) return true;
-    var diff=Math.floor((Date.now()-new Date(r.last_collected).getTime())/86400000);
-    return diff>=r.collect_cycle;
-  }).length;
-  h+='<div style="background:#F8F9FA;border-radius:8px;padding:10px 16px;font-size:12px">';
-  h+='📊 오늘 수집완료 <b style="color:#00B493">'+todayCollected+'</b>개';
-  h+='</div>';
-  h+='<div style="background:'+(needCollect>0?'#FFF8E1':'#F8F9FA')+';border-radius:8px;padding:10px 16px;font-size:12px">';
-  h+='🔄 수집 필요 <b style="color:'+(needCollect>0?'#E65100':'#8B95A1')+'">'+needCollect+'</b>개';
-  h+='</div>';
-  h+='</div>';
+    var diff = Math.floor((Date.now()-new Date(r.last_collected).getTime())/86400000);
+    return diff >= r.collect_cycle;
+  });
+  var priceChanged = smItems.filter(function(r){
+    return r.base_price && r.current_price && r.base_price !== r.current_price
+      && r.last_collected && r.last_collected.slice(0,10)===today;
+  });
 
-  h+='<div style="overflow-x:auto;border:1px solid #E5E8EB;border-radius:12px">';
-  h+='<table id="smTable" style="width:100%;border-collapse:collapse;font-size:13px">';
-  h+='<thead><tr style="background:#F8F9FA">';
-  h+='<th style="padding:10px 12px;text-align:left;font-weight:600;white-space:nowrap">브랜드</th>';
-  h+='<th style="padding:10px 12px;text-align:left;font-weight:600">SKU ID</th>';
-  h+='<th style="padding:10px 12px;text-align:left;font-weight:600;min-width:250px">상품명</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">링크</th>';
-  h+='<th style="padding:10px 12px;text-align:right;font-weight:600">등록가</th>';
-  h+='<th style="padding:10px 12px;text-align:right;font-weight:600">현재가</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">변동</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">수집주기</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">마지막수집</th>';
-  h+='<th style="padding:10px 12px;text-align:left;font-weight:600">메모</th>';
-  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">관리</th>';
-  h+='</tr></thead><tbody>';
+  var h = '';
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px">';
+
+  h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px">';
+  h += '<div style="font-size:12px;color:#8B95A1;margin-bottom:8px">금일 수집 완료</div>';
+  h += '<div style="font-size:28px;font-weight:700;color:#00B493">'+todayItems.length+'<span style="font-size:14px;font-weight:400;color:#8B95A1"> / '+smItems.length+'개</span></div>';
+  h += '</div>';
+
+  h += '<div style="background:'+(needCollect.length>0?'#FFFDE7':'#fff')+';border:1px solid '+(needCollect.length>0?'#FFE082':'#E5E8EB')+';border-radius:12px;padding:16px">';
+  h += '<div style="font-size:12px;color:#8B95A1;margin-bottom:8px">수집 대기</div>';
+  h += '<div style="font-size:28px;font-weight:700;color:'+(needCollect.length>0?'#E65100':'#8B95A1')+'">'+needCollect.length+'<span style="font-size:14px;font-weight:400;color:#8B95A1">개</span></div>';
+  h += '</div>';
+
+  h += '<div style="background:'+(priceChanged.length>0?'#FEECEE':'#fff')+';border:1px solid '+(priceChanged.length>0?'#F04452':'#E5E8EB')+';border-radius:12px;padding:16px">';
+  h += '<div style="font-size:12px;color:#8B95A1;margin-bottom:8px">금일 가격 변동</div>';
+  h += '<div style="font-size:28px;font-weight:700;color:'+(priceChanged.length>0?'#F04452':'#8B95A1')+'">'+priceChanged.length+'<span style="font-size:14px;font-weight:400;color:#8B95A1">건</span></div>';
+  h += '</div>';
+
+  h += '</div>';
+
+  h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
+  h += '<div style="font-size:14px;font-weight:700;margin-bottom:12px">브랜드별 수집 현황</div>';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  h += '<thead><tr style="background:#F8F9FA"><th style="padding:8px 12px;text-align:left">브랜드</th><th style="padding:8px 12px;text-align:center">전체</th><th style="padding:8px 12px;text-align:center">금일 수집</th><th style="padding:8px 12px;text-align:center">대기</th><th style="padding:8px 12px;text-align:center">가격변동</th></tr></thead><tbody>';
+  for(var i=0;i<brands.length;i++){
+    var b = brands[i];
+    var bc = brandColor[b]||defBC;
+    var bAll = smItems.filter(function(r){return r.brand===b});
+    var bToday = todayItems.filter(function(r){return r.brand===b});
+    var bNeed = needCollect.filter(function(r){return r.brand===b});
+    var bChanged = priceChanged.filter(function(r){return r.brand===b});
+    h += '<tr style="border-top:1px solid #F2F4F6">';
+    h += '<td style="padding:8px 12px"><span style="color:'+bc.color+';font-weight:600">'+esc(b)+'</span></td>';
+    h += '<td style="padding:8px 12px;text-align:center">'+bAll.length+'</td>';
+    h += '<td style="padding:8px 12px;text-align:center;color:#00B493;font-weight:600">'+bToday.length+'</td>';
+    h += '<td style="padding:8px 12px;text-align:center;color:'+(bNeed.length>0?'#E65100':'#8B95A1')+';font-weight:'+(bNeed.length>0?'600':'400')+'">'+bNeed.length+'</td>';
+    h += '<td style="padding:8px 12px;text-align:center;color:'+(bChanged.length>0?'#F04452':'#8B95A1')+';font-weight:'+(bChanged.length>0?'600':'400')+'">'+bChanged.length+'</td>';
+    h += '</tr>';
+  }
+  h += '</tbody></table></div>';
+
+  var flags = [...new Set(smItems.map(function(r){return r.flag}).filter(Boolean))].sort();
+  if(flags.length > 0){
+    h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
+    h += '<div style="font-size:14px;font-weight:700;margin-bottom:12px">플래그별 수집 현황</div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    for(var i=0;i<flags.length;i++){
+      var f = flags[i];
+      var fs = flagStyle[f]||{bg:'#F2F3F5',color:'#6B7684'};
+      var fAll = smItems.filter(function(r){return r.flag===f});
+      var fToday = todayItems.filter(function(r){return r.flag===f});
+      h += '<div style="background:'+fs.bg+';border-radius:8px;padding:10px 16px;min-width:120px">';
+      h += '<div style="font-size:11px;color:'+fs.color+';font-weight:600;margin-bottom:4px">'+esc(f)+'</div>';
+      h += '<div style="font-size:18px;font-weight:700;color:'+fs.color+'">'+fToday.length+' <span style="font-size:12px;font-weight:400">/ '+fAll.length+'</span></div>';
+      h += '</div>';
+    }
+    h += '</div></div>';
+  }
+
+  h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
+  h += '<div style="font-size:14px;font-weight:700;margin-bottom:12px">가격 변동 목록</div>';
+  if(priceChanged.length === 0){
+    h += '<div style="color:#8B95A1;font-size:13px;padding:12px 0">금일 가격 변동 없음</div>';
+  } else {
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    h += '<thead><tr style="background:#F8F9FA"><th style="padding:8px 12px;text-align:left">브랜드</th><th style="padding:8px 12px;text-align:left">SKU ID</th><th style="padding:8px 12px;text-align:left">상품명</th><th style="padding:8px 12px;text-align:right">등록가</th><th style="padding:8px 12px;text-align:right">현재가</th><th style="padding:8px 12px;text-align:center">변동</th></tr></thead><tbody>';
+    for(var i=0;i<priceChanged.length;i++){
+      var r = priceChanged[i];
+      var bc = brandColor[r.brand]||defBC;
+      var diff = r.current_price - r.base_price;
+      var pct = Math.round((diff/r.base_price)*100);
+      h += '<tr style="border-top:1px solid #F2F4F6">';
+      h += '<td style="padding:8px 12px"><span style="color:'+bc.color+';font-weight:600;font-size:12px">'+esc(r.brand)+'</span></td>';
+      h += '<td style="padding:8px 12px">'+esc(r.sku_id)+'</td>';
+      h += '<td style="padding:8px 12px">'+esc(r.sku_name||'')+'</td>';
+      h += '<td style="padding:8px 12px;text-align:right">'+Number(r.base_price).toLocaleString('ko-KR')+'원</td>';
+      h += '<td style="padding:8px 12px;text-align:right;font-weight:600">'+Number(r.current_price).toLocaleString('ko-KR')+'원</td>';
+      h += '<td style="padding:8px 12px;text-align:center">';
+      if(diff<0) h += '<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
+      else h += '<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
+      h += '</td></tr>';
+    }
+    h += '</tbody></table>';
+  }
+  h += '</div>';
+
+  h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+  h += '<div style="font-size:14px;font-weight:700">수집 대기 목록</div>';
+  h += '</div>';
+  if(needCollect.length === 0){
+    h += '<div style="color:#8B95A1;font-size:13px;padding:12px 0">모든 수집이 완료되었습니다 ✅</div>';
+  } else {
+    h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    h += '<thead><tr style="background:#FFFDE7"><th style="padding:8px 12px;text-align:left">브랜드</th><th style="padding:8px 12px;text-align:left">SKU ID</th><th style="padding:8px 12px;text-align:left">상품명</th><th style="padding:8px 12px;text-align:center">플래그</th><th style="padding:8px 12px;text-align:center">주기</th><th style="padding:8px 12px;text-align:center">마지막수집</th><th style="padding:8px 12px;text-align:center">스킵</th></tr></thead><tbody>';
+    for(var i=0;i<needCollect.length;i++){
+      var r = needCollect[i];
+      var bc = brandColor[r.brand]||defBC;
+      h += '<tr style="border-top:1px solid #F2F4F6" id="skipRow_'+esc(r.sku_id)+'">';
+      h += '<td style="padding:8px 12px"><span style="color:'+bc.color+';font-weight:600;font-size:12px">'+esc(r.brand)+'</span></td>';
+      h += '<td style="padding:8px 12px">'+esc(r.sku_id)+'</td>';
+      h += '<td style="padding:8px 12px">'+esc(r.sku_name||'')+'</td>';
+      h += '<td style="padding:8px 12px;text-align:center">';
+      if(r.flag){
+        var fs = flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+        h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
+      }
+      h += '</td>';
+      h += '<td style="padding:8px 12px;text-align:center">'+(r.collect_cycle===1?'매일':r.collect_cycle+'일')+'</td>';
+      h += '<td style="padding:8px 12px;text-align:center;font-size:12px;color:#8B95A1">'+(r.last_collected?r.last_collected.slice(0,10).slice(5):'미수집')+'</td>';
+      h += '<td style="padding:8px 12px;text-align:center"><button onclick="skipCollect(\''+esc(r.sku_id)+'\')" style="background:#F2F3F5;border:1px solid #E5E8EB;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:#6B7684">스킵</button></td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table>';
+  }
+  h += '</div>';
+
+  document.getElementById('smContent').innerHTML = h;
+}
+
+async function skipCollect(skuId){
+  if(!confirm('이 SKU의 오늘 수집을 스킵하시겠습니까?')) return;
+  var today = new Date().toISOString().slice(0,10);
+  try{
+    await fetch('/api/sku-manage',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sku_id:skuId, last_collected:today})
+    });
+    var row = document.getElementById('skipRow_'+skuId);
+    if(row){
+      row.style.opacity='0.3';
+      row.querySelector('button').textContent='스킵됨';
+      row.querySelector('button').disabled=true;
+    }
+  }catch(e){ alert('오류: '+e.message); }
+}
+
+function renderSmBrandView(brand){
+  var items = smItems.filter(function(r){return r.brand===brand});
+  var flags = [...new Set(items.map(function(r){return r.flag}).filter(Boolean))].sort();
+  var today = new Date().toISOString().slice(0,10);
+  var bc = brandColor[brand]||defBC;
+
+  var h = '';
+
+  h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">';
+  h += '<div id="smFlagChips" style="display:flex;gap:4px;flex-wrap:wrap">';
+  h += '<button class="sm-flag-chip active" data-flag="" onclick="smSelectFlag(this,\'\')" style="padding:5px 12px;border:1px solid '+bc.color+';border-radius:20px;background:'+bc.color+';color:#fff;font-size:12px;cursor:pointer">전체 ('+items.length+')</button>';
+  for(var i=0;i<flags.length;i++){
+    var fcnt = items.filter(function(r){return r.flag===flags[i]}).length;
+    h += '<button class="sm-flag-chip" data-flag="'+esc(flags[i])+'" onclick="smSelectFlag(this,\''+esc(flags[i])+'\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#6B7684;font-size:12px;cursor:pointer">'+esc(flags[i])+' ('+fcnt+')</button>';
+  }
+  var noFlagCnt = items.filter(function(r){return !r.flag}).length;
+  if(noFlagCnt>0){
+    h += '<button class="sm-flag-chip" data-flag="__none__" onclick="smSelectFlag(this,\'__none__\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#8B95A1;font-size:12px;cursor:pointer">미지정 ('+noFlagCnt+')</button>';
+  }
+  h += '</div>';
+  h += '<div style="flex:1"></div>';
+  h += '<input id="smSearch" oninput="filterSkuBrand()" placeholder="SKU ID 또는 상품명 검색" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px;min-width:200px;max-width:300px">';
+  h += '<span style="font-size:12px;color:#8B95A1" id="smCount">'+items.length+'개</span>';
+  h += '</div>';
+
+  h += '<div style="overflow-x:auto;border:1px solid #E5E8EB;border-radius:12px">';
+  h += '<table id="smTable" style="width:100%;border-collapse:collapse;font-size:13px">';
+  h += '<thead><tr style="background:#F8F9FA">';
+  h += '<th style="padding:10px 12px;text-align:left;font-weight:600">SKU ID</th>';
+  h += '<th style="padding:10px 12px;text-align:left;font-weight:600;min-width:250px">상품명</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">링크</th>';
+  h += '<th style="padding:10px 12px;text-align:right;font-weight:600">등록가</th>';
+  h += '<th style="padding:10px 12px;text-align:right;font-weight:600">현재가</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">변동</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">수집주기</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">마지막수집</th>';
+  h += '<th style="padding:10px 12px;text-align:left;font-weight:600">메모</th>';
+  h += '<th style="padding:10px 12px;text-align:center;font-weight:600">관리</th>';
+  h += '</tr></thead><tbody>';
 
   for(var i=0;i<items.length;i++){
-    var r=items[i];
-    var url=getSkuUrl(r);
-    var collectDue=false;
+    var r = items[i];
+    var url = getSkuUrl(r);
+    var collectDue = false;
     if(r.collect_cycle && r.collect_cycle>0){
       if(!r.last_collected) collectDue=true;
       else{
@@ -1032,164 +1190,148 @@ async function renderSkuManage(){
         if(diffD>=r.collect_cycle) collectDue=true;
       }
     }
-    var rowBg=collectDue?'background:#FFFDE7;':'';
 
-    h+='<tr class="sm-row" data-brand="'+esc(r.brand||'')+'" data-flag="'+(r.flag||'')+'" data-search="'+esc((r.sku_id||'')+' '+(r.sku_name||''))+'" style="border-top:1px solid #F2F4F6;'+rowBg+'">';
-
-    var myBC=brandColor[r.brand]||defBC;
-    h+='<td style="padding:8px 12px;white-space:nowrap"><span style="color:'+myBC.color+';font-weight:600;font-size:12px">'+esc(r.brand||'')+'</span></td>';
-
-    h+='<td style="padding:8px 12px;font-variant-numeric:tabular-nums">'+esc(r.sku_id||'')+'</td>';
-    h+='<td style="padding:8px 12px">';
-    if(url) h+='<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
-    else h+=esc(r.sku_name||'');
-    h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:center">';
-    if(url) h+='<a href="'+esc(url)+'" target="_blank" style="text-decoration:none">🔗</a>';
-    else h+='<span style="color:#D1D6DB">-</span>';
-    h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
-    h+=(r.base_price ? Number(r.base_price).toLocaleString('ko-KR')+'원' : '-');
-    h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
+    h += '<tr class="sm-row" data-flag="'+(r.flag||'')+'" data-search="'+esc((r.sku_id||'')+' '+(r.sku_name||''))+'" style="border-top:1px solid #F2F4F6;'+(collectDue?'background:#FFFDE7;':'')+'">';
+    h += '<td style="padding:8px 12px;font-variant-numeric:tabular-nums">'+esc(r.sku_id||'')+'</td>';
+    h += '<td style="padding:8px 12px">';
+    if(url) h += '<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
+    else h += esc(r.sku_name||'');
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
+    if(url) h += '<a href="'+esc(url)+'" target="_blank" style="text-decoration:none">🔗</a>';
+    else h += '<span style="color:#D1D6DB">-</span>';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">'+(r.base_price?Number(r.base_price).toLocaleString('ko-KR')+'원':'-')+'</td>';
+    h += '<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">';
     if(r.current_price){
-      h+='<span onclick="editPrice(\''+esc(r.sku_id)+'\','+r.current_price+')" style="cursor:pointer;border-bottom:1px dashed #3182F6;color:#191F28">';
-      h+=Number(r.current_price).toLocaleString('ko-KR')+'원 ✏️</span>';
-      if(r.price_checked_at){
-        h+='<div style="font-size:10px;color:#8B95A1">'+timeAgo(r.price_checked_at)+'</div>';
-      }
-    }else{
-      h+='<span onclick="editPrice(\''+esc(r.sku_id)+'\',0)" style="cursor:pointer;color:#3182F6;font-size:12px">+ 입력</span>';
+      h += '<span onclick="editPrice(\''+esc(r.sku_id)+'\','+r.current_price+')" style="cursor:pointer;border-bottom:1px dashed #3182F6;color:#191F28">'+Number(r.current_price).toLocaleString('ko-KR')+'원 ✏️</span>';
+      if(r.price_checked_at) h += '<div style="font-size:10px;color:#8B95A1">'+timeAgo(r.price_checked_at)+'</div>';
+    } else {
+      h += '<span onclick="editPrice(\''+esc(r.sku_id)+'\',0)" style="cursor:pointer;color:#3182F6;font-size:12px">+ 입력</span>';
     }
-    h+='</td>';
-    h+='<td style="padding:8px 12px;text-align:center" id="pd_'+esc(r.sku_id)+'">';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
     if(r.base_price && r.current_price){
-      var diff=r.current_price - r.base_price;
-      var pct=Math.round((diff/r.base_price)*100);
-      if(diff<0) h+='<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
-      else if(diff>0) h+='<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
-      else h+='<span style="color:#00B493">✅</span>';
-    }else{
-      h+='-';
-    }
-    h+='</td>';
-
-    h+='<td style="padding:8px 12px;text-align:center">';
+      var diff = r.current_price - r.base_price;
+      var pct = Math.round((diff/r.base_price)*100);
+      if(diff<0) h += '<span style="color:#F04452;font-weight:700">▼'+Math.abs(pct)+'%</span>';
+      else if(diff>0) h += '<span style="color:#3182F6;font-weight:700">▲'+pct+'%</span>';
+      else h += '<span style="color:#00B493">✅</span>';
+    } else h += '-';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
     if(r.flag){
-      var fst=flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
-      h+='<span style="background:'+fst.bg+';color:'+fst.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
+      var fs = flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+      h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
     }
-    h+='</td>';
-
-    h+='<td style="padding:8px 12px;text-align:center">';
-    var cyc=r.collect_cycle||0;
-    var cycLabel=cyc<=0?'<span style="color:#D1D6DB">-</span>':cyc===1?'<span style="color:#F04452;font-weight:600">매일</span>':cyc<=3?'<span style="color:#E65100;font-weight:600">'+cyc+'일</span>':'<span style="color:#8B95A1">'+cyc+'일</span>';
-    h+=cycLabel;
-    h+='</td>';
-
-    h+='<td style="padding:8px 12px;text-align:center;font-size:12px">';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
+    var cyc = r.collect_cycle||0;
+    if(cyc<=0) h += '<span style="color:#D1D6DB">-</span>';
+    else if(cyc===1) h += '<span style="color:#F04452;font-weight:600">매일</span>';
+    else if(cyc<=3) h += '<span style="color:#E65100;font-weight:600">'+cyc+'일</span>';
+    else h += '<span style="color:#8B95A1">'+cyc+'일</span>';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center;font-size:12px">';
     if(r.last_collected){
-      var lcd=r.last_collected.slice(0,10);
-      if(lcd===today) h+='<span style="color:#00B493;font-weight:600">오늘 ✅</span>';
-      else h+='<span style="color:#8B95A1">'+lcd.slice(5)+'</span>';
-    }else{
-      h+='<span style="color:#F04452;font-size:11px">미수집</span>';
-    }
-    h+='</td>';
-
-    h+='<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'')+'</td>';
-    h+='<td style="padding:8px 12px;text-align:center;white-space:nowrap">';
-    h+='<button onclick="editSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="수정">✏️</button>';
-    h+='<button onclick="deactivateSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="비활성화">🗑️</button>';
-    h+='</td>';
-    h+='</tr>';
+      var lcd = r.last_collected.slice(0,10);
+      if(lcd===today) h += '<span style="color:#00B493;font-weight:600">오늘 ✅</span>';
+      else h += '<span style="color:#8B95A1">'+lcd.slice(5)+'</span>';
+    } else h += '<span style="color:#F04452;font-size:11px">미수집</span>';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'')+'</td>';
+    h += '<td style="padding:8px 12px;text-align:center;white-space:nowrap">';
+    h += '<button onclick="editSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="수정">✏️</button>';
+    h += '<button onclick="deactivateSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="비활성화">🗑️</button>';
+    h += '</td>';
+    h += '</tr>';
   }
-  h+='</tbody></table></div>';
+  h += '</tbody></table></div>';
 
-  document.getElementById('skuManageContent').innerHTML=h;
+  document.getElementById('smContent').innerHTML = h;
 }
 
-var smActiveBrand='';
-function smSelectBrand(el,brand){
-  smActiveBrand=brand;
+function smSelectBrand(el, brand){
+  smActiveBrand = brand;
+  smActiveFlag = '';
   document.querySelectorAll('.sm-brand-tab').forEach(function(btn){
-    var bc=btn.dataset.brand;
-    var bThemeMap={'건우코리아':{color:'#3182F6'},'아리코':{color:'#00B493'},'윰':{color:'#F04452'}};
-    if(bc===brand){
+    var bc = brandColor[btn.dataset.brand]||{color:'#191F28'};
+    if(btn.dataset.brand === brand){
       btn.classList.add('active');
-      var c=bThemeMap[bc]||{color:'#191F28'};
-      btn.style.color=bc?c.color:'#191F28';
-      btn.style.borderBottomColor=bc?c.color:'#191F28';
-      btn.style.fontWeight='700';
-    }else{
+      btn.style.color = btn.dataset.brand ? bc.color : '#191F28';
+      btn.style.borderBottomColor = btn.dataset.brand ? bc.color : '#191F28';
+      btn.style.fontWeight = '700';
+    } else {
       btn.classList.remove('active');
-      btn.style.color='#8B95A1';
-      btn.style.borderBottomColor='transparent';
-      btn.style.fontWeight='600';
+      btn.style.color = '#8B95A1';
+      btn.style.borderBottomColor = 'transparent';
+      btn.style.fontWeight = '600';
     }
   });
-  filterSkuManage();
+
+  if(!brand){
+    renderSmOverview();
+  } else {
+    renderSmBrandView(brand);
+  }
 }
 
-var smActiveFlag='';
-function smSelectFlag(el,flag){
-  smActiveFlag=flag;
-  var flagColors={'신규':{bg:'#3182F6',color:'#fff'},'주목':{bg:'#E65100',color:'#fff'},'주의':{bg:'#F04452',color:'#fff'},'TOP':{bg:'#E65100',color:'#fff'},'중요':{bg:'#F04452',color:'#fff'},'__none__':{bg:'#8B95A1',color:'#fff'}};
+function smSelectFlag(el, flag){
+  smActiveFlag = flag;
+  var bc = brandColor[smActiveBrand]||{color:'#191F28'};
   document.querySelectorAll('.sm-flag-chip').forEach(function(btn){
-    var f=btn.dataset.flag;
-    if(f===flag){
+    if(btn.dataset.flag === flag){
       btn.classList.add('active');
-      var fc=flagColors[f]||{bg:'#191F28',color:'#fff'};
-      btn.style.background=fc.bg;
-      btn.style.color=fc.color;
-      btn.style.borderColor=fc.bg;
-    }else{
+      btn.style.background = bc.color;
+      btn.style.color = '#fff';
+      btn.style.borderColor = bc.color;
+    } else {
       btn.classList.remove('active');
-      btn.style.background='#fff';
-      btn.style.color='#6B7684';
-      btn.style.borderColor='#E5E8EB';
+      btn.style.background = '#fff';
+      btn.style.color = '#6B7684';
+      btn.style.borderColor = '#E5E8EB';
     }
   });
-  filterSkuManage();
+  filterSkuBrand();
 }
 
-function filterSkuManage(){
-  var brand=smActiveBrand;
-  var flag=smActiveFlag;
-  var search=(document.getElementById('smSearch')?document.getElementById('smSearch').value:'').toLowerCase();
-  var rows=document.querySelectorAll('.sm-row');
-  var cnt=0;
+function filterSkuBrand(){
+  var flag = smActiveFlag;
+  var search = (document.getElementById('smSearch')?document.getElementById('smSearch').value:'').toLowerCase();
+  var rows = document.querySelectorAll('.sm-row');
+  var cnt = 0;
   rows.forEach(function(tr){
-    var show=true;
-    if(brand && tr.dataset.brand!==brand) show=false;
+    var show = true;
     if(flag==='__none__'){ if(tr.dataset.flag) show=false; }
     else if(flag && tr.dataset.flag!==flag) show=false;
     if(search && tr.dataset.search.toLowerCase().indexOf(search)===-1) show=false;
-    tr.style.display=show?'':'none';
-    if(show)cnt++;
+    tr.style.display = show?'':'none';
+    if(show) cnt++;
   });
-  document.getElementById('smCount').textContent=cnt+'개';
+  document.getElementById('smCount').textContent = cnt+'개';
 }
 
+function filterSkuManage(){ filterSkuBrand(); }
+
 function editSku(skuId){
-  var r=(D.skuManageMap||{})[skuId];
+  var r = (D.skuManageMap||{})[skuId];
   if(!r) return;
-  var flag=prompt('플래그 (신규/주목/주의/TOP/중요/빈칸):', r.flag||'');
+  var flag = prompt('플래그 (신규/주목/주의/TOP/중요/빈칸):', r.flag||'');
   if(flag===null) return;
   var cycleDefault = {'신규':1,'주목':2,'주의':2,'TOP':3,'중요':3};
   var curCycle = r.collect_cycle || cycleDefault[flag] || 7;
-  var cycle=prompt('수집 주기 (일 단위, 1=매일, 0=수집안함):', curCycle);
+  var cycle = prompt('수집 주기 (일 단위, 1=매일, 0=수집안함):', curCycle);
   if(cycle===null) return;
-  cycle=parseInt(cycle)||0;
-  var memo=prompt('메모:', r.memo||'');
+  cycle = parseInt(cycle)||0;
+  var memo = prompt('메모:', r.memo||'');
   if(memo===null) return;
   fetch('/api/sku-manage',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({sku_id:skuId,brand:r.brand,sku_name:r.sku_name,
-      pid:r.pid,iid:r.iid,vid:r.vid,product_url:r.product_url,
-      flag:flag,memo:memo,collect_cycle:cycle,active:1})
-  }).then(function(){renderSkuManage();});
+    body:JSON.stringify({sku_id:skuId, brand:r.brand, sku_name:r.sku_name,
+      pid:r.pid, iid:r.iid, vid:r.vid, product_url:r.product_url,
+      flag:flag, memo:memo, collect_cycle:cycle, active:1})
+  }).then(function(){ renderSkuManage(); });
 }
 
 function deactivateSku(skuId){

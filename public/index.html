@@ -1086,32 +1086,111 @@ function renderSmOverview(){
   }
   h += '</div>';
 
+  // ── 다음 수집 예정 (날짜/브랜드/플래그 그룹) ──
   h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
-  h += '<div style="font-size:14px;font-weight:700">수집 대기 목록</div>';
-  h += '</div>';
-  if(needCollect.length === 0){
-    h += '<div style="color:#8B95A1;font-size:13px;padding:12px 0">모든 수집이 완료되었습니다 ✅</div>';
+  h += '<div style="font-size:14px;font-weight:700;margin-bottom:12px">수집 예정 스케줄</div>';
+
+  var scheduleGroups = [];
+  for(var d=0; d<7; d++){
+    var targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + d);
+    var targetStr = targetDate.toISOString().slice(0,10);
+    var dayNames = ['일','월','화','수','목','금','토'];
+    var dayLabel = (d===0?'오늘':d===1?'내일':targetStr.slice(5)) + ' (' + dayNames[targetDate.getDay()] + ')';
+
+    var dueItems = smItems.filter(function(r){
+      if(!r.collect_cycle || r.collect_cycle <= 0) return false;
+      if(!r.last_collected){
+        return d === 0;
+      }
+      var lastDate = new Date(r.last_collected.slice(0,10));
+      var nextDate = new Date(lastDate);
+      nextDate.setDate(nextDate.getDate() + r.collect_cycle);
+      return nextDate.toISOString().slice(0,10) === targetStr;
+    });
+
+    if(dueItems.length === 0) continue;
+
+    var groupMap = {};
+    for(var i=0; i<dueItems.length; i++){
+      var r = dueItems[i];
+      var key = (r.brand||'미지정') + '||' + (r.flag||'미지정');
+      if(!groupMap[key]) groupMap[key] = {brand:r.brand||'미지정', flag:r.flag||'미지정', items:[]};
+      groupMap[key].items.push(r);
+    }
+    var groups = Object.values(groupMap);
+    for(var g=0; g<groups.length; g++){
+      scheduleGroups.push({
+        date: targetStr,
+        dateLabel: dayLabel,
+        brand: groups[g].brand,
+        flag: groups[g].flag,
+        items: groups[g].items
+      });
+    }
+  }
+
+  window._scheduleGroups = scheduleGroups;
+  if(scheduleGroups.length === 0){
+    h += '<div style="color:#8B95A1;font-size:13px;padding:12px 0">향후 7일간 수집 예정 없음 ✅</div>';
   } else {
     h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-    h += '<thead><tr style="background:#FFFDE7"><th style="padding:8px 12px;text-align:left">브랜드</th><th style="padding:8px 12px;text-align:left">SKU ID</th><th style="padding:8px 12px;text-align:left">상품명</th><th style="padding:8px 12px;text-align:center">플래그</th><th style="padding:8px 12px;text-align:center">주기</th><th style="padding:8px 12px;text-align:center">마지막수집</th><th style="padding:8px 12px;text-align:center">스킵</th></tr></thead><tbody>';
-    for(var i=0;i<needCollect.length;i++){
-      var r = needCollect[i];
-      var bc = brandColor[r.brand]||defBC;
-      h += '<tr style="border-top:1px solid #F2F4F6" id="skipRow_'+esc(r.sku_id)+'">';
-      h += '<td style="padding:8px 12px"><span style="color:'+bc.color+';font-weight:600;font-size:12px">'+esc(r.brand)+'</span></td>';
-      h += '<td style="padding:8px 12px">'+esc(r.sku_id)+'</td>';
-      h += '<td style="padding:8px 12px">'+esc(r.sku_name||'')+'</td>';
-      h += '<td style="padding:8px 12px;text-align:center">';
-      if(r.flag){
-        var fs = flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
-        h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
+    h += '<thead><tr style="background:#F8F9FA">';
+    h += '<th style="padding:10px 12px;text-align:left;font-weight:600">예정일</th>';
+    h += '<th style="padding:10px 12px;text-align:left;font-weight:600">브랜드</th>';
+    h += '<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
+    h += '<th style="padding:10px 12px;text-align:center;font-weight:600">SKU 수</th>';
+    h += '<th style="padding:10px 12px;text-align:center;font-weight:600">상세</th>';
+    h += '<th style="padding:10px 12px;text-align:center;font-weight:600">스킵</th>';
+    h += '</tr></thead><tbody>';
+
+    for(var i=0; i<scheduleGroups.length; i++){
+      var sg = scheduleGroups[i];
+      var bc = brandColor[sg.brand]||defBC;
+      var fs = flagStyle[sg.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+      var isToday = sg.date === today;
+
+      h += '<tr style="border-top:1px solid #F2F4F6;'+(isToday?'background:#FFFDE7;':'')+'" id="schedRow_'+i+'">';
+
+      h += '<td style="padding:10px 12px;font-weight:'+(isToday?'700':'400')+';color:'+(isToday?'#E65100':'#191F28')+'">';
+      h += sg.dateLabel;
+      h += '</td>';
+
+      h += '<td style="padding:10px 12px"><span style="color:'+bc.color+';font-weight:600">'+esc(sg.brand)+'</span></td>';
+
+      h += '<td style="padding:10px 12px;text-align:center">';
+      if(sg.flag !== '미지정'){
+        h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 10px;border-radius:4px;font-size:11px;font-weight:600">'+esc(sg.flag)+'</span>';
+      } else {
+        h += '<span style="color:#8B95A1;font-size:12px">미지정</span>';
       }
       h += '</td>';
-      h += '<td style="padding:8px 12px;text-align:center">'+(r.collect_cycle===1?'매일':r.collect_cycle+'일')+'</td>';
-      h += '<td style="padding:8px 12px;text-align:center;font-size:12px;color:#8B95A1">'+(r.last_collected?r.last_collected.slice(0,10).slice(5):'미수집')+'</td>';
-      h += '<td style="padding:8px 12px;text-align:center"><button onclick="skipCollect(\''+esc(r.sku_id)+'\')" style="background:#F2F3F5;border:1px solid #E5E8EB;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:#6B7684">스킵</button></td>';
+
+      h += '<td style="padding:10px 12px;text-align:center;font-weight:600">'+sg.items.length+'개</td>';
+
+      h += '<td style="padding:10px 12px;text-align:center">';
+      h += '<button onclick="toggleScheduleDetail('+i+')" style="background:none;border:1px solid #E5E8EB;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:#3182F6">보기</button>';
+      h += '</td>';
+
+      h += '<td style="padding:10px 12px;text-align:center">';
+      h += '<button onclick="skipScheduleGroup('+i+')" id="schedSkip_'+i+'" style="background:#F2F3F5;border:1px solid #E5E8EB;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;color:#6B7684">스킵</button>';
+      h += '</td>';
+
       h += '</tr>';
+
+      h += '<tr id="schedDetail_'+i+'" style="display:none"><td colspan="6" style="padding:0 12px 12px 24px;background:#FAFBFC">';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">';
+      h += '<thead><tr><th style="padding:6px 8px;text-align:left;color:#8B95A1;font-weight:500">SKU ID</th><th style="padding:6px 8px;text-align:left;color:#8B95A1;font-weight:500">상품명</th><th style="padding:6px 8px;text-align:right;color:#8B95A1;font-weight:500">현재가</th><th style="padding:6px 8px;text-align:center;color:#8B95A1;font-weight:500">마지막수집</th></tr></thead><tbody>';
+      for(var j=0; j<sg.items.length; j++){
+        var sr = sg.items[j];
+        h += '<tr style="border-top:1px solid #F2F4F6">';
+        h += '<td style="padding:6px 8px">'+esc(sr.sku_id)+'</td>';
+        h += '<td style="padding:6px 8px">'+esc(sr.sku_name||'')+'</td>';
+        h += '<td style="padding:6px 8px;text-align:right">'+(sr.current_price?Number(sr.current_price).toLocaleString('ko-KR')+'원':'-')+'</td>';
+        h += '<td style="padding:6px 8px;text-align:center;color:#8B95A1">'+(sr.last_collected?sr.last_collected.slice(0,10).slice(5):'미수집')+'</td>';
+        h += '</tr>';
+      }
+      h += '</tbody></table></td></tr>';
     }
     h += '</tbody></table>';
   }
@@ -1136,6 +1215,36 @@ async function skipCollect(skuId){
       row.querySelector('button').disabled=true;
     }
   }catch(e){ alert('오류: '+e.message); }
+}
+
+function toggleScheduleDetail(idx){
+  var el = document.getElementById('schedDetail_'+idx);
+  if(!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function skipScheduleGroup(idx){
+  var sg = window._scheduleGroups && window._scheduleGroups[idx];
+  if(!sg){ alert('스케줄 데이터를 찾을 수 없습니다. 새로고침 후 다시 시도해주세요.'); return; }
+  if(!confirm(sg.dateLabel+' / '+sg.brand+' / '+sg.flag+' ('+sg.items.length+'개) 수집을 스킵하시겠습니까?')) return;
+
+  var today = new Date().toISOString().slice(0,10);
+  var promises = sg.items.map(function(r){
+    return fetch('/api/sku-manage',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sku_id:r.sku_id, last_collected:today})
+    });
+  });
+
+  Promise.all(promises).then(function(){
+    var btn = document.getElementById('schedSkip_'+idx);
+    if(btn){ btn.textContent='스킵됨'; btn.disabled=true; btn.style.color='#00B493'; }
+    var row = document.getElementById('schedRow_'+idx);
+    if(row) row.style.opacity='0.4';
+    var detail = document.getElementById('schedDetail_'+idx);
+    if(detail) detail.style.opacity='0.4';
+  });
 }
 
 function renderSmBrandView(brand){

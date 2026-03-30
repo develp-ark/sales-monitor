@@ -31,286 +31,291 @@ async function getSheetsAsync() {
 
 async function syncBrandSheet(brandName, rows) {
   const sheets = await getSheetsAsync();
-  
-  // 시트 존재 확인/생성
-  try {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-    const exists = meta.data.sheets.some(s => s.properties.title === brandName);
-    if (!exists) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        requestBody: { requests: [{ addSheet: { properties: { title: brandName } } }] }
-      });
-    }
-  } catch (e) { console.error('Sheet check error:', e.message); return; }
+  if (!sheets) return;
 
-  // 1) 기존 시트 데이터 읽기
-  let existing = [];
+  // 1) 시트 존재 확인 / 생성
+  let sheetId;
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+  const existing = meta.data.sheets.find(s => s.properties.title === brandName);
+  if (existing) {
+    sheetId = existing.properties.sheetId;
+  } else {
+    const addRes = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: brandName } } }]
+      }
+    });
+    sheetId = addRes.data.replies[0].addSheet.properties.sheetId;
+  }
+
+  // 2) 기존 데이터 읽기
+  let existingRows = [];
   try {
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:ZZ'
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${brandName}!A1:ZZ`
     });
-    existing = res.data.values || [];
-  } catch (e) {}
+    existingRows = res.data.values || [];
+  } catch (e) {
+    console.log('[SHEETS] No existing data, starting fresh');
+  }
 
-  // 2) 기존 데이터에서 SKU 맵, 날짜 목록 복원
-  let oldHeader = [];
-  let oldDates = [];
-  const skuMap = new Map(); // sku_id -> { name, stock, status, salesByDate }
+  // 3) 기존 데이터를 SKU Map으로 변환
+  // skuMap[sku_id] = { name, stock, status, latestDate, dates: { 'MM-DD': sales } }
+  const skuMap = {};
+  let existingDates = [];
+  const fixedCols = 4;
 
-  if (existing.length >= 2) {
-    oldHeader = existing[0];
-    // 날짜는 E열(index 4)부터
-    oldDates = oldHeader.slice(4);
-    for (let i = 2; i < existing.length; i++) { // 0=헤더, 1=합계행, 2~=SKU행
-      const row = existing[i];
+  if (existingRows.length >= 2) {
+    const header = existingRows[0];
+    existingDates = header.slice(fixedCols).map(h => String(h).trim());
+    const h2 = String(header[2] || '').trim();
+    const h3 = String(header[3] || '').trim();
+    const stockFirst = h2.includes('재고') || h3.includes('상태');
+
+    for (let r = 2; r < existingRows.length; r++) {
+      const row = existingRows[r];
       const skuId = String(row[0] || '').trim();
       if (!skuId) continue;
-      const salesByDate = {};
-      for (let j = 4; j < row.length; j++) {
-        const d = oldDates[j - 4];
-        if (d) salesByDate[d] = num(row[j], 0);
+      const skuName = String(row[1] || '').trim();
+      const stockCell = stockFirst ? row[2] : row[3];
+      const statusCell = stockFirst ? row[3] : row[2];
+
+      if (!skuMap[skuId]) {
+        skuMap[skuId] = {
+          name: skuName,
+          stock: stockCell !== undefined && stockCell !== null ? stockCell : '',
+          status: statusCell !== undefined && statusCell !== null ? statusCell : '',
+          latestDate: '',
+          dates: {}
+        };
       }
-      skuMap.set(skuId, {
-        name: row[1] || '',
-        stock: row[2] != null ? row[2] : '',
-        status: row[3] || '',
-        salesByDate
-      });
+      for (let d = 0; d < existingDates.length; d++) {
+        const dateKey = existingDates[d];
+        const val = row[fixedCols + d];
+        if (val !== undefined && val !== null && val !== '') {
+          skuMap[skuId].dates[dateKey] = Number(val) || 0;
+        }
+      }
+      const dk = Object.keys(skuMap[skuId].dates);
+      if (dk.length) {
+        skuMap[skuId].latestDate = dk.reduce((a, b) => (a > b ? a : b));
+      }
     }
   }
 
-  // 3) 새 데이터 반영
-  const newDates = new Set();
-  for (const r of rows) {
-    newDates.add(r.date);
-    const sid = String(r.sku_id).trim();
-    if (!skuMap.has(sid)) {
-      skuMap.set(sid, { name: '', stock: '', status: '', salesByDate: {} });
+  // 4) 새 데이터 병합 (덮어쓰기 방식)
+  for (const row of rows) {
+    const skuId = String(row.sku_id || '').trim();
+    if (!skuId) continue;
+
+    const dateRaw = row.date;
+    const dateKey = dateRaw ? dateRaw.slice(5) : null;
+    if (!dateKey) continue;
+
+    if (!skuMap[skuId]) {
+      skuMap[skuId] = { name: row.sku_name || '', stock: '', status: '', latestDate: '', dates: {} };
     }
-    const entry = skuMap.get(sid);
-    // SKU명, 재고, 상태는 최신 데이터로 덮어쓰기
-    if (r.sku_name) entry.name = r.sku_name;
-    if (r.stock != null) entry.stock = r.stock;
-    if (r.status) entry.status = r.status;
-    // 해당 날짜 판매량 덮어쓰기
-    entry.salesByDate[r.date] = r.sales;
+
+    skuMap[skuId].dates[dateKey] = Number(row.sales) || 0;
+
+    if (!skuMap[skuId].latestDate || dateKey > skuMap[skuId].latestDate) {
+      skuMap[skuId].latestDate = dateKey;
+      if (row.stock !== undefined && row.stock !== null && row.stock !== '') {
+        skuMap[skuId].stock = row.stock;
+      }
+      if (row.status !== undefined && row.status !== null && row.status !== '') {
+        skuMap[skuId].status = row.status;
+      }
+    }
   }
 
-  // 4) 전체 날짜 목록 (오래된 날짜 → 최신 날짜, 왼쪽→오른쪽)
-  const allDatesSet = new Set([...oldDates, ...newDates]);
-  const allDates = [...allDatesSet].sort();
-
-  // 5) 날짜 표시: MM-DD 형식
-  const dateLabelRow = allDates.map(d => {
-    const parts = d.split('-');
-    return parts.length === 3 ? parts[1] + '-' + parts[2] : d;
+  // 5) 전체 날짜 목록 생성 및 정렬 (MM-DD 순)
+  const allDatesSet = new Set();
+  for (const sku of Object.values(skuMap)) {
+    for (const d of Object.keys(sku.dates)) {
+      allDatesSet.add(d);
+    }
+  }
+  const allDates = [...allDatesSet].sort((a, b) => {
+    const [am, ad] = a.split('-').map(Number);
+    const [bm, bd] = b.split('-').map(Number);
+    if (am !== bm) return am - bm;
+    return ad - bd;
   });
 
-  // 6) 헤더행
-  const header = ['SKU ID', 'SKU 명', '재고', '상태', ...dateLabelRow];
+  // 6) 헤더 행 구성 (A~D: SKU ID, SKU명, 재고, 상태)
+  const headerRow = ['SKU ID', 'SKU명', '재고', '상태', ...allDates];
 
-  // 7) 일별 합계 계산
-  const dailyTotals = allDates.map(d => {
+  // 7) 합계 행 계산
+  const sumRow = ['합계', '', '', ''];
+  for (const d of allDates) {
     let total = 0;
-    for (const [, entry] of skuMap) {
-      total += (entry.salesByDate[d] || 0);
+    for (const sku of Object.values(skuMap)) {
+      total += (sku.dates[d] || 0);
     }
-    return total;
-  });
-  const sumRow = ['', '', '', '', ...dailyTotals];
-
-  // 8) SKU 행 (SKU ID 오름차순)
-  const skuRows = [];
-  const sortedSkus = [...skuMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  for (const [skuId, entry] of sortedSkus) {
-    const salesCells = allDates.map(d => entry.salesByDate[d] || 0);
-    skuRows.push([skuId, entry.name, entry.stock, entry.status, ...salesCells]);
+    sumRow.push(total);
   }
 
-  // 9) 최종 데이터: 헤더 + 합계행 + SKU행들
-  const allRows = [header, sumRow, ...skuRows];
+  // 8) SKU 행 구성 (SKU명 한국어순 정렬)
+  const skuIds = Object.keys(skuMap).sort((a, b) => {
+    const na = skuMap[a].name || '';
+    const nb = skuMap[b].name || '';
+    return na.localeCompare(nb, 'ko');
+  });
 
-  // 10) 시트에 쓰기 + 서식 적용
-  try {
-    // 시트 ID 가져오기
-    const metaForId = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-    const sheetObj = metaForId.data.sheets.find(s => s.properties.title === brandName);
-    const sheetId = sheetObj.properties.sheetId;
+  const dataRows = skuIds.map(skuId => {
+    const sku = skuMap[skuId];
+    const row = [skuId, sku.name, sku.stock || '', sku.status || ''];
+    for (const d of allDates) {
+      row.push(sku.dates[d] !== undefined ? sku.dates[d] : '');
+    }
+    return row;
+  });
 
-    // 값 클리어 후 쓰기
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: SPREADSHEET_ID, range: brandName + '!A:ZZ'
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: brandName + '!A1',
-      valueInputOption: 'RAW',
-      requestBody: { values: allRows }
-    });
+  // 9) 전체 데이터 쓰기
+  const allRows = [headerRow, sumRow, ...dataRows];
 
-    const totalCols = header.length;
-    const totalRows = allRows.length;
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${brandName}!A1:ZZ`
+  });
 
-    // 서식 요청 배열
-    const requests = [];
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${brandName}!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: allRows }
+  });
 
-    // --- 1행(헤더): 진한 파랑 배경 + 흰색 굵은 글자 + 고정 ---
-    requests.push({
+  // 10) 서식 적용
+  const totalCols = fixedCols + allDates.length;
+  const totalRows = allRows.length;
+
+  const requests = [
+    {
+      updateSheetProperties: {
+        properties: {
+          sheetId,
+          gridProperties: {
+            frozenRowCount: 2,
+            frozenColumnCount: 4
+          }
+        },
+        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
+      }
+    },
+    {
       repeatCell: {
         range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 0.1, green: 0.3, blue: 0.6 },
-            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 }, fontSize: 10 },
-            horizontalAlignment: 'CENTER',
-            verticalAlignment: 'MIDDLE'
+            backgroundColor: { red: 0.24, green: 0.52, blue: 0.78 },
+            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+            horizontalAlignment: 'CENTER'
           }
         },
-        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)'
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
       }
-    });
-
-    // --- 2행(합계): 연한 노랑 배경 + 굵은 글자 ---
-    requests.push({
+    },
+    {
       repeatCell: {
         range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: totalCols },
         cell: {
           userEnteredFormat: {
             backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
-            textFormat: { bold: true, fontSize: 10 },
+            textFormat: { bold: true },
             horizontalAlignment: 'CENTER'
           }
         },
         fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
       }
-    });
-
-    // --- A~D열(SKU ID, SKU명, 재고, 상태) 헤더 색: 연한 녹색 ---
-    requests.push({
+    },
+    {
       repeatCell: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 4 },
+        range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 2 },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 0.85, green: 0.93, blue: 0.83 },
-            textFormat: { bold: true, foregroundColor: { red: 0, green: 0, blue: 0 }, fontSize: 10 },
+            backgroundColor: { red: 0.85, green: 0.95, blue: 0.85 }
+          }
+        },
+        fields: 'userEnteredFormat.backgroundColor'
+      }
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: fixedCols, endColumnIndex: totalCols },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.9, green: 0.93, blue: 1 },
             horizontalAlignment: 'CENTER'
           }
         },
-        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+        fields: 'userEnteredFormat(backgroundColor,horizontalAlignment)'
       }
-    });
-
-    // --- 날짜 열 헤더(E~): 연한 파랑 ---
-    if (totalCols > 4) {
-      requests.push({
-        repeatCell: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 4, endColumnIndex: totalCols },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 0.82, green: 0.88, blue: 0.97 },
-              textFormat: { bold: true, foregroundColor: { red: 0.1, green: 0.1, blue: 0.5 }, fontSize: 10 },
-              horizontalAlignment: 'CENTER'
-            }
-          },
-          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    },
+    {
+      setBasicFilter: {
+        filter: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
         }
-      });
+      }
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: 120 },
+        fields: 'pixelSize'
+      }
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
+        properties: { pixelSize: 250 },
+        fields: 'pixelSize'
+      }
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 },
+        properties: { pixelSize: 80 },
+        fields: 'pixelSize'
+      }
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: fixedCols, endIndex: totalCols },
+        properties: { pixelSize: 60 },
+        fields: 'pixelSize'
+      }
     }
+  ];
 
-    // --- 3행~ 데이터 영역: 기본 서식 ---
-    if (totalRows > 2) {
-      requests.push({
-        repeatCell: {
-          range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 1, green: 1, blue: 1 },
-              textFormat: { fontSize: 9 }
-            }
-          },
-          fields: 'userEnteredFormat(backgroundColor,textFormat)'
-        }
-      });
-    }
-
-    // --- 품절 셀 빨간색 (D열 = index 3) ---
-    for (let i = 2; i < totalRows; i++) {
-      const statusVal = allRows[i] && allRows[i][3] ? String(allRows[i][3]) : '';
-      if (statusVal === '품절') {
+  for (let r = 2; r < totalRows; r++) {
+    for (let c = fixedCols; c < totalCols; c++) {
+      if (allRows[r][c] === 0) {
         requests.push({
           repeatCell: {
-            range: { sheetId, startRowIndex: i, endRowIndex: i + 1, startColumnIndex: 3, endColumnIndex: 4 },
+            range: { sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: c, endColumnIndex: c + 1 },
             cell: {
               userEnteredFormat: {
-                backgroundColor: { red: 1, green: 0.8, blue: 0.8 },
-                textFormat: { bold: true, foregroundColor: { red: 0.8, green: 0, blue: 0 }, fontSize: 9 }
+                backgroundColor: { red: 1, green: 0.8, blue: 0.8 }
               }
             },
-            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+            fields: 'userEnteredFormat.backgroundColor'
           }
         });
       }
     }
+  }
 
-    // --- 1행 고정 (freeze) ---
-    requests.push({
-      updateSheetProperties: {
-        properties: { sheetId, gridProperties: { frozenRowCount: 2, frozenColumnCount: 2 } },
-        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
-      }
-    });
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: { requests }
+  });
 
-    // --- 필터 설정 (1행 기준) ---
-    // 기존 필터 제거
-    requests.push({
-      clearBasicFilter: { sheetId }
-    });
-    // 새 필터 적용
-    requests.push({
-      setBasicFilter: {
-        filter: {
-          range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
-        }
-      }
-    });
-
-    // --- 열 너비 조정 ---
-    requests.push({
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
-        properties: { pixelSize: 100 }, fields: 'pixelSize'
-      }
-    });
-    requests.push({
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
-        properties: { pixelSize: 280 }, fields: 'pixelSize'
-      }
-    });
-    requests.push({
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 },
-        properties: { pixelSize: 60 }, fields: 'pixelSize'
-      }
-    });
-    if (totalCols > 4) {
-      requests.push({
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 4, endIndex: totalCols },
-          properties: { pixelSize: 50 }, fields: 'pixelSize'
-        }
-      });
-    }
-
-    // 서식 일괄 적용
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SPREADSHEET_ID,
-      requestBody: { requests }
-    });
-
-    console.log('[Sheets] ' + brandName + ': ' + skuRows.length + ' SKUs, ' + allDates.length + ' dates synced + formatted');
-  } catch (e) { console.error('[Sheets] sync error:', e.message); }
+  console.log(`[SHEETS] ${brandName} synced: ${skuIds.length} SKUs × ${allDates.length} dates`);
 }
 
 

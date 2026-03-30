@@ -473,28 +473,25 @@ function renderTrend(){
       +'</td></tr>';
   }
 
-   // 당월 1일
-  var currentMonth1st = latestDate.slice(0, 8) + '01';
-  
-  // 당월 날짜를 주 단위로 분할하여 일별 표시
-  var monthDays = (D.dates||[]).filter(function(d){ return d >= currentMonth1st && d <= today; }).sort();
-  var monthWeeks = [];
-  var tw = [];
-  for(var mi=0; mi<monthDays.length; mi++){
-    tw.push(monthDays[mi]);
-    if(dayOfWeek(monthDays[mi]) === 6 || mi === monthDays.length - 1){
+    // 현재 월 1일
+  var currentMonth1st = (D.latestDate || today).slice(0, 8) + '01';
+  // 현재 월 날짜를 주 단위로 나눠 일별 표시
+  var monthDays = (D.dates||[]).filter(d => d >= currentMonth1st && d <= today).sort();
+  var monthWeeks = [], tw = [];
+  for (var i = 0; i < monthDays.length; i++) {
+    tw.push(monthDays[i]);
+    if (dayOfWeek(monthDays[i]) === 6 || i === monthDays.length - 1) {
       monthWeeks.push(tw);
       tw = [];
     }
   }
-  // 최신 주부터 표시
   monthWeeks.reverse();
-  for(var mw=0; mw<monthWeeks.length; mw++){
-    var wLabel = mw === 0 ? '이번 주' : '지난 ' + mw + '주';
-    renderWeekBlock(monthWeeks[mw], wLabel);
+  for (var w = 0; w < monthWeeks.length; w++) {
+    var label = w === 0 ? '이번 주' : '지난 ' + w + '주';
+    renderWeekBlock(monthWeeks[w], label);
   }
-
   var cutoff = currentMonth1st;
+
 
   var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
   if(olderDates.length>0){

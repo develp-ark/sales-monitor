@@ -61,8 +61,11 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Invalid date: "${rawLatest}"` });
     }
 
-        // 당월 1일부터 표시
-    const start365 = latestDate.slice(0, 8) + '01';
+        // 당월 + 이전 2개월
+    const startMonth = new Date(`${latestDate}T12:00:00.000Z`);
+    startMonth.setUTCMonth(startMonth.getUTCMonth() - 2);
+    startMonth.setUTCDate(1);
+    const start365 = startMonth.toISOString().slice(0, 10);
 
     const dates = dateRangeInclusive(start365, latestDate);
 

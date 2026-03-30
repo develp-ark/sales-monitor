@@ -61,7 +61,9 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Invalid date: "${rawLatest}"` });
     }
 
-    const start365 = addDays(latestDate, -29);
+        // 당월 1일부터 표시
+    const start365 = latestDate.slice(0, 8) + '01';
+
     const dates = dateRangeInclusive(start365, latestDate);
 
     // ── 핵심 쿼리 (병렬) ──

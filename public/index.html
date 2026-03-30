@@ -478,7 +478,10 @@ function renderTrend(){
   if(prev2Days.length) renderWeekBlock(prev2Days, '지난 2주');
   if(prev3Days.length) renderWeekBlock(prev3Days, '지난 3주');
 
-  var cutoff = prev3Sun;
+    // 당월 1일 이후는 일별, 이전은 주간 요약
+  var currentMonth1st = latestDate.slice(0, 8) + '01';
+  var cutoff = currentMonth1st < prev3Sun ? currentMonth1st : prev3Sun;
+
   var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
   if(olderDates.length>0){
     var colSpan = 2 + brands.length + 1;

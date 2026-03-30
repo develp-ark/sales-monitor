@@ -15,6 +15,8 @@ const INIT_SQL = `CREATE TABLE IF NOT EXISTS sku_manage (
   product_url TEXT,
   flag TEXT,
   memo TEXT,
+  collect_cycle INTEGER DEFAULT 7,
+  last_collected TEXT,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -53,6 +55,8 @@ module.exports = async function handler(req, res) {
       'ALTER TABLE sku_manage ADD COLUMN base_price INTEGER',
       'ALTER TABLE sku_manage ADD COLUMN current_price INTEGER',
       'ALTER TABLE sku_manage ADD COLUMN price_checked_at TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN collect_cycle INTEGER DEFAULT 7',
+      'ALTER TABLE sku_manage ADD COLUMN last_collected TEXT',
     ];
     for (const sql of alters) {
       try { await db.execute(sql); } catch(e) { /* already exists */ }

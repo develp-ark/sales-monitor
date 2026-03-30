@@ -17,6 +17,8 @@ module.exports = async function handler(req, res) {
       product_url TEXT,
       flag TEXT,
       memo TEXT,
+      collect_cycle INTEGER DEFAULT 7,
+      last_collected TEXT,
       active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
@@ -34,6 +36,8 @@ module.exports = async function handler(req, res) {
       'ALTER TABLE sku_manage ADD COLUMN base_price INTEGER',
       'ALTER TABLE sku_manage ADD COLUMN current_price INTEGER',
       'ALTER TABLE sku_manage ADD COLUMN price_checked_at TEXT',
+      'ALTER TABLE sku_manage ADD COLUMN collect_cycle INTEGER DEFAULT 7',
+      'ALTER TABLE sku_manage ADD COLUMN last_collected TEXT',
     ];
     for (const sql of alters) {
       try { await db.execute(sql); } catch(e) { /* already exists */ }
@@ -42,12 +46,19 @@ module.exports = async function handler(req, res) {
     // GET
     if (req.method === 'GET') {
       const brand = (req.query && req.query.brand) || '';
+      const flag = (req.query && req.query.flag) || '';
       const showInactive = req.query && req.query.inactive === '1';
+      const dueOnly = req.query && req.query.due === '1';
       let sql = 'SELECT * FROM sku_manage';
       let args = [];
       let conds = [];
       if (brand) { conds.push('brand = ?'); args.push(brand); }
+      if (flag) { conds.push('flag = ?'); args.push(flag); }
       if (!showInactive) { conds.push('active = 1'); }
+      if (dueOnly) {
+        conds.push("collect_cycle > 0");
+        conds.push("(last_collected IS NULL OR CAST(julianday('now') - julianday(last_collected) AS INTEGER) >= collect_cycle)");
+      }
       if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
       sql += ' ORDER BY brand, sku_name';
       const result = await db.execute({ sql, args });
@@ -64,8 +75,8 @@ module.exports = async function handler(req, res) {
       const old = existing.rows.length ? existing.rows[0] : {};
 
       await db.execute({
-        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, base_price, current_price, price_checked_at, pid, iid, vid, product_url, flag, memo, active, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        sql: `INSERT INTO sku_manage (sku_id, brand, sku_name, base_price, current_price, price_checked_at, pid, iid, vid, product_url, flag, memo, collect_cycle, last_collected, active, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
               ON CONFLICT(sku_id) DO UPDATE SET
                 brand=CASE WHEN excluded.brand!='' THEN excluded.brand ELSE sku_manage.brand END,
                 sku_name=CASE WHEN excluded.sku_name!='' THEN excluded.sku_name ELSE sku_manage.sku_name END,
@@ -78,6 +89,8 @@ module.exports = async function handler(req, res) {
                 product_url=CASE WHEN excluded.product_url IS NOT NULL THEN excluded.product_url ELSE sku_manage.product_url END,
                 flag=CASE WHEN excluded.flag IS NOT NULL THEN excluded.flag ELSE sku_manage.flag END,
                 memo=CASE WHEN excluded.memo IS NOT NULL THEN excluded.memo ELSE sku_manage.memo END,
+                collect_cycle=CASE WHEN excluded.collect_cycle IS NOT NULL THEN excluded.collect_cycle ELSE sku_manage.collect_cycle END,
+                last_collected=CASE WHEN excluded.last_collected IS NOT NULL THEN excluded.last_collected ELSE sku_manage.last_collected END,
                 active=excluded.active,
                 updated_at=datetime('now')`,
         args: [
@@ -91,8 +104,10 @@ module.exports = async function handler(req, res) {
           b.iid||old.iid||null,
           b.vid||old.vid||null,
           b.product_url||old.product_url||null,
-          b.flag||old.flag||null,
-          b.memo||old.memo||null,
+          b.flag!=null?b.flag:(old.flag||null),
+          b.memo!=null?b.memo:(old.memo||null),
+          b.collect_cycle!=null?b.collect_cycle:(old.collect_cycle!=null?old.collect_cycle:7),
+          b.last_collected||old.last_collected||null,
           b.active!=null?b.active:1
         ]
       });

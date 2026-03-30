@@ -945,21 +945,63 @@ async function renderSkuManage(){
   var result = await resp.json();
   var items = (result.ok && result.data) ? result.data : [];
 
-  var brands = [...new Set(items.map(function(r){return r.brand}))].sort();
+  var brands = [...new Set(items.map(function(r){return r.brand}))].filter(Boolean).sort();
+  var flags = [...new Set(items.map(function(r){return r.flag}).filter(Boolean))].sort();
+
+  var brandColor = {
+    '건우코리아':{color:'#3182F6',bg:'#EBF3FE'},
+    '아리코':{color:'#00B493',bg:'#E8FAF6'},
+    '윰':{color:'#F04452',bg:'#FEECEE'}
+  };
+  var defBC = {color:'#6B7684',bg:'#F2F3F5'};
 
   var h='';
-  h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">';
-  h+='<select id="smBrandFilter" onchange="filterSkuManage()" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px">';
-  h+='<option value="">전체 브랜드</option>';
-  for(var i=0;i<brands.length;i++) h+='<option>'+esc(brands[i])+'</option>';
-  h+='</select>';
-  h+='<select id="smFlagFilter" onchange="filterSkuManage()" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px">';
-  h+='<option value="">전체 플래그</option>';
-  var flags=[...new Set(items.map(function(r){return r.flag}).filter(Boolean))].sort();
-  for(var i=0;i<flags.length;i++) h+='<option>'+esc(flags[i])+'</option>';
-  h+='</select>';
-  h+='<input id="smSearch" oninput="filterSkuManage()" placeholder="SKU ID 또는 상품명 검색" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px;flex:1;min-width:200px">';
+
+  h+='<div id="smBrandTabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid #E5E8EB;padding-bottom:0">';
+  h+='<button class="sm-brand-tab active" data-brand="" onclick="smSelectBrand(this,\'\')" style="padding:10px 18px;border:none;background:none;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid #191F28;margin-bottom:-2px;color:#191F28">전체 <span style="font-size:11px;font-weight:400;color:#8B95A1">('+items.length+')</span></button>';
+  for(var i=0;i<brands.length;i++){
+    var bc = brandColor[brands[i]]||defBC;
+    var cnt = items.filter(function(r){return r.brand===brands[i]}).length;
+    h+='<button class="sm-brand-tab" data-brand="'+esc(brands[i])+'" onclick="smSelectBrand(this,\''+esc(brands[i])+'\')" style="padding:10px 18px;border:none;background:none;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#8B95A1">'+esc(brands[i])+' <span style="font-size:11px;font-weight:400">('+cnt+')</span></button>';
+  }
+  h+='</div>';
+
+  h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">';
+
+  h+='<div id="smFlagChips" style="display:flex;gap:4px;flex-wrap:wrap">';
+  h+='<button class="sm-flag-chip active" data-flag="" onclick="smSelectFlag(this,\'\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#191F28;color:#fff;font-size:12px;cursor:pointer">전체</button>';
+  var flagStyle = {'신규':{bg:'#EBF3FE',color:'#3182F6',border:'#3182F6'},'주목':{bg:'#FFF3E0',color:'#E65100',border:'#E65100'},'주의':{bg:'#FEECEE',color:'#F04452',border:'#F04452'},'TOP':{bg:'#FFF3E0',color:'#E65100',border:'#E65100'},'중요':{bg:'#FEECEE',color:'#F04452',border:'#F04452'}};
+  for(var i=0;i<flags.length;i++){
+    var fs=flagStyle[flags[i]]||{bg:'#F2F3F5',color:'#6B7684',border:'#D1D6DB'};
+    var fcnt=items.filter(function(r){return r.flag===flags[i]}).length;
+    h+='<button class="sm-flag-chip" data-flag="'+esc(flags[i])+'" onclick="smSelectFlag(this,\''+esc(flags[i])+'\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#6B7684;font-size:12px;cursor:pointer">'+esc(flags[i])+' ('+fcnt+')</button>';
+  }
+  var noFlagCnt=items.filter(function(r){return !r.flag}).length;
+  if(noFlagCnt>0){
+    h+='<button class="sm-flag-chip" data-flag="__none__" onclick="smSelectFlag(this,\'__none__\')" style="padding:5px 12px;border:1px solid #E5E8EB;border-radius:20px;background:#fff;color:#8B95A1;font-size:12px;cursor:pointer">미지정 ('+noFlagCnt+')</button>';
+  }
+  h+='</div>';
+
+  h+='<div style="flex:1"></div>';
+  h+='<input id="smSearch" oninput="filterSkuManage()" placeholder="SKU ID 또는 상품명 검색" style="padding:8px 12px;border:1px solid #E5E8EB;border-radius:8px;font-size:13px;min-width:200px;max-width:300px">';
   h+='<span style="font-size:12px;color:#8B95A1" id="smCount">'+items.length+'개</span>';
+  h+='</div>';
+
+  h+='<div id="smCollectSummary" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">';
+  var today=new Date().toISOString().slice(0,10);
+  var todayCollected=items.filter(function(r){return r.last_collected && r.last_collected.slice(0,10)===today}).length;
+  var needCollect=items.filter(function(r){
+    if(!r.collect_cycle||r.collect_cycle<=0) return false;
+    if(!r.last_collected) return true;
+    var diff=Math.floor((Date.now()-new Date(r.last_collected).getTime())/86400000);
+    return diff>=r.collect_cycle;
+  }).length;
+  h+='<div style="background:#F8F9FA;border-radius:8px;padding:10px 16px;font-size:12px">';
+  h+='📊 오늘 수집완료 <b style="color:#00B493">'+todayCollected+'</b>개';
+  h+='</div>';
+  h+='<div style="background:'+(needCollect>0?'#FFF8E1':'#F8F9FA')+';border-radius:8px;padding:10px 16px;font-size:12px">';
+  h+='🔄 수집 필요 <b style="color:'+(needCollect>0?'#E65100':'#8B95A1')+'">'+needCollect+'</b>개';
+  h+='</div>';
   h+='</div>';
 
   h+='<div style="overflow-x:auto;border:1px solid #E5E8EB;border-radius:12px">';
@@ -973,6 +1015,8 @@ async function renderSkuManage(){
   h+='<th style="padding:10px 12px;text-align:right;font-weight:600">현재가</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">변동</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">플래그</th>';
+  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">수집주기</th>';
+  h+='<th style="padding:10px 12px;text-align:center;font-weight:600">마지막수집</th>';
   h+='<th style="padding:10px 12px;text-align:left;font-weight:600">메모</th>';
   h+='<th style="padding:10px 12px;text-align:center;font-weight:600">관리</th>';
   h+='</tr></thead><tbody>';
@@ -980,8 +1024,21 @@ async function renderSkuManage(){
   for(var i=0;i<items.length;i++){
     var r=items[i];
     var url=getSkuUrl(r);
-    h+='<tr class="sm-row" data-brand="'+esc(r.brand||'')+'" data-flag="'+(r.flag||'')+'" data-search="'+esc((r.sku_id||'')+' '+(r.sku_name||''))+'" style="border-top:1px solid #F2F4F6">';
-    h+='<td style="padding:8px 12px;color:#8B95A1;white-space:nowrap">'+esc(r.brand||'')+'</td>';
+    var collectDue=false;
+    if(r.collect_cycle && r.collect_cycle>0){
+      if(!r.last_collected) collectDue=true;
+      else{
+        var diffD=Math.floor((Date.now()-new Date(r.last_collected).getTime())/86400000);
+        if(diffD>=r.collect_cycle) collectDue=true;
+      }
+    }
+    var rowBg=collectDue?'background:#FFFDE7;':'';
+
+    h+='<tr class="sm-row" data-brand="'+esc(r.brand||'')+'" data-flag="'+(r.flag||'')+'" data-search="'+esc((r.sku_id||'')+' '+(r.sku_name||''))+'" style="border-top:1px solid #F2F4F6;'+rowBg+'">';
+
+    var myBC=brandColor[r.brand]||defBC;
+    h+='<td style="padding:8px 12px;white-space:nowrap"><span style="color:'+myBC.color+';font-weight:600;font-size:12px">'+esc(r.brand||'')+'</span></td>';
+
     h+='<td style="padding:8px 12px;font-variant-numeric:tabular-nums">'+esc(r.sku_id||'')+'</td>';
     h+='<td style="padding:8px 12px">';
     if(url) h+='<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
@@ -1016,11 +1073,32 @@ async function renderSkuManage(){
       h+='-';
     }
     h+='</td>';
+
     h+='<td style="padding:8px 12px;text-align:center">';
-    if(r.flag) h+='<span style="background:'+(r.flag==='TOP'?'#FFF3E0':r.flag==='주의'?'#FEECEE':'#EBF3FE')+';color:'+(r.flag==='TOP'?'#E65100':r.flag==='주의'?'#F04452':'#3182F6')+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
+    if(r.flag){
+      var fst=flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+      h+='<span style="background:'+fst.bg+';color:'+fst.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span>';
+    }
     h+='</td>';
-    h+='<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'')+'</td>';
+
     h+='<td style="padding:8px 12px;text-align:center">';
+    var cyc=r.collect_cycle||0;
+    var cycLabel=cyc<=0?'<span style="color:#D1D6DB">-</span>':cyc===1?'<span style="color:#F04452;font-weight:600">매일</span>':cyc<=3?'<span style="color:#E65100;font-weight:600">'+cyc+'일</span>':'<span style="color:#8B95A1">'+cyc+'일</span>';
+    h+=cycLabel;
+    h+='</td>';
+
+    h+='<td style="padding:8px 12px;text-align:center;font-size:12px">';
+    if(r.last_collected){
+      var lcd=r.last_collected.slice(0,10);
+      if(lcd===today) h+='<span style="color:#00B493;font-weight:600">오늘 ✅</span>';
+      else h+='<span style="color:#8B95A1">'+lcd.slice(5)+'</span>';
+    }else{
+      h+='<span style="color:#F04452;font-size:11px">미수집</span>';
+    }
+    h+='</td>';
+
+    h+='<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'')+'</td>';
+    h+='<td style="padding:8px 12px;text-align:center;white-space:nowrap">';
     h+='<button onclick="editSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="수정">✏️</button>';
     h+='<button onclick="deactivateSku(\''+esc(r.sku_id)+'\')" style="background:none;border:none;cursor:pointer;font-size:14px" title="비활성화">🗑️</button>';
     h+='</td>';
@@ -1031,16 +1109,61 @@ async function renderSkuManage(){
   document.getElementById('skuManageContent').innerHTML=h;
 }
 
+var smActiveBrand='';
+function smSelectBrand(el,brand){
+  smActiveBrand=brand;
+  document.querySelectorAll('.sm-brand-tab').forEach(function(btn){
+    var bc=btn.dataset.brand;
+    var bThemeMap={'건우코리아':{color:'#3182F6'},'아리코':{color:'#00B493'},'윰':{color:'#F04452'}};
+    if(bc===brand){
+      btn.classList.add('active');
+      var c=bThemeMap[bc]||{color:'#191F28'};
+      btn.style.color=bc?c.color:'#191F28';
+      btn.style.borderBottomColor=bc?c.color:'#191F28';
+      btn.style.fontWeight='700';
+    }else{
+      btn.classList.remove('active');
+      btn.style.color='#8B95A1';
+      btn.style.borderBottomColor='transparent';
+      btn.style.fontWeight='600';
+    }
+  });
+  filterSkuManage();
+}
+
+var smActiveFlag='';
+function smSelectFlag(el,flag){
+  smActiveFlag=flag;
+  var flagColors={'신규':{bg:'#3182F6',color:'#fff'},'주목':{bg:'#E65100',color:'#fff'},'주의':{bg:'#F04452',color:'#fff'},'TOP':{bg:'#E65100',color:'#fff'},'중요':{bg:'#F04452',color:'#fff'},'__none__':{bg:'#8B95A1',color:'#fff'}};
+  document.querySelectorAll('.sm-flag-chip').forEach(function(btn){
+    var f=btn.dataset.flag;
+    if(f===flag){
+      btn.classList.add('active');
+      var fc=flagColors[f]||{bg:'#191F28',color:'#fff'};
+      btn.style.background=fc.bg;
+      btn.style.color=fc.color;
+      btn.style.borderColor=fc.bg;
+    }else{
+      btn.classList.remove('active');
+      btn.style.background='#fff';
+      btn.style.color='#6B7684';
+      btn.style.borderColor='#E5E8EB';
+    }
+  });
+  filterSkuManage();
+}
+
 function filterSkuManage(){
-  var brand=document.getElementById('smBrandFilter').value;
-  var flag=document.getElementById('smFlagFilter').value;
-  var search=document.getElementById('smSearch').value.toLowerCase();
+  var brand=smActiveBrand;
+  var flag=smActiveFlag;
+  var search=(document.getElementById('smSearch')?document.getElementById('smSearch').value:'').toLowerCase();
   var rows=document.querySelectorAll('.sm-row');
   var cnt=0;
   rows.forEach(function(tr){
     var show=true;
     if(brand && tr.dataset.brand!==brand) show=false;
-    if(flag && tr.dataset.flag!==flag) show=false;
+    if(flag==='__none__'){ if(tr.dataset.flag) show=false; }
+    else if(flag && tr.dataset.flag!==flag) show=false;
     if(search && tr.dataset.search.toLowerCase().indexOf(search)===-1) show=false;
     tr.style.display=show?'':'none';
     if(show)cnt++;
@@ -1051,8 +1174,13 @@ function filterSkuManage(){
 function editSku(skuId){
   var r=(D.skuManageMap||{})[skuId];
   if(!r) return;
-  var flag=prompt('플래그 (TOP/신규/주의/빈칸):', r.flag||'');
+  var flag=prompt('플래그 (신규/주목/주의/TOP/중요/빈칸):', r.flag||'');
   if(flag===null) return;
+  var cycleDefault = {'신규':1,'주목':2,'주의':2,'TOP':3,'중요':3};
+  var curCycle = r.collect_cycle || cycleDefault[flag] || 7;
+  var cycle=prompt('수집 주기 (일 단위, 1=매일, 0=수집안함):', curCycle);
+  if(cycle===null) return;
+  cycle=parseInt(cycle)||0;
   var memo=prompt('메모:', r.memo||'');
   if(memo===null) return;
   fetch('/api/sku-manage',{
@@ -1060,8 +1188,8 @@ function editSku(skuId){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({sku_id:skuId,brand:r.brand,sku_name:r.sku_name,
       pid:r.pid,iid:r.iid,vid:r.vid,product_url:r.product_url,
-      flag:flag,memo:memo,active:1})
-  }).then(function(){location.reload();});
+      flag:flag,memo:memo,collect_cycle:cycle,active:1})
+  }).then(function(){renderSkuManage();});
 }
 
 function deactivateSku(skuId){

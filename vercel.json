@@ -3,5 +3,11 @@
   "functions": {
     "api/upload.js": { "maxDuration": 60 },
     "api/dashboard.js": { "maxDuration": 60 }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/dashboard",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

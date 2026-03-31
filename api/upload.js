@@ -194,7 +194,7 @@ async function syncBrandSheet(brandName, rows) {
     const sku = skuMap[skuId];
     const row = [skuId, sku.name, sku.stock || '', sku.status || ''];
     for (const d of allDates) {
-      row.push(sku.dates[d] !== undefined ? sku.dates[d] : '');
+      row.push(sku.dates[d] !== undefined ? sku.dates[d] : 0);
     }
     return row;
   });

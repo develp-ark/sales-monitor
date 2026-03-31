@@ -673,26 +673,21 @@ module.exports = async (req, res) => {
 
     // ── Google Sheets 동기화 (백그라운드) ──
     const skipSync = req.query && req.query.skipSync === '1';
-    if (!skipSync) {
-      // 응답 후 백그라운드로 실행 (await 없음)
+    if (!skipSync && fileBrandFromName) {
       (async () => {
         try {
-          const allBrands = await db.execute(
-            "SELECT DISTINCT brand FROM sales WHERE brand != ''"
-          );
-          for (const bRow of allBrands.rows) {
-            const brandName = bRow.brand;
-            const brandData = await db.execute({
-              sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
-              args: [brandName]
-            });
-            const rows = brandData.rows.map(r => ({
-              date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
-              sales: Number(r.sales) || 0, stock: r.stock, status: r.status
-            }));
-            await syncBrandSheet(brandName, rows);
-          }
+          // 업로드된 브랜드만 시트 동기화
+          const brandName = fileBrandFromName;
+          const brandData = await db.execute({
+            sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
+            args: [brandName]
+          });
+          await syncBrandSheet(brandName, brandData.rows.map(r => ({
+            date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
+            sales: Number(r.sales) || 0, stock: r.stock, status: r.status
+          })));
 
+          // 데일리트렌드는 전체 브랜드 필요하므로 유지
           const trendRows = await db.execute(
             'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
           );
@@ -702,7 +697,7 @@ module.exports = async (req, res) => {
             trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
           }
           await syncDailyTrend(trendByBrand);
-          console.log('[Sheets] background sync complete');
+          console.log('[Sheets] background sync complete for', brandName);
         } catch (e) {
           console.error('[Sheets background sync error]', e.message);
         }

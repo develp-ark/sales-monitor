@@ -85,7 +85,7 @@ body{font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif;background:#f5f6fa;
 
 .stitle{font-size:15px;font-weight:700;color:#202124;margin:24px 0 10px;padding-left:12px;border-left:4px solid #1a73e8}
 .trend-wrap{overflow-x:auto;border-radius:10px;border:1px solid #e8eaed}
-table.trend{width:100%;border-collapse:collapse;font-size:12px}
+table.trend{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
 table.trend th,table.trend td{padding:7px 10px;text-align:right;border-bottom:1px solid #f1f3f4}
 table.trend th{background:#f8f9fa;color:#5f6368;font-weight:600;position:sticky;top:0;z-index:2;white-space:nowrap;font-size:11px}
 table.trend th:first-child,table.trend td:first-child{text-align:left}
@@ -430,6 +430,15 @@ function renderTrend(){
   var prev2Days = weekDays(prev2Sun, addD(prev1Sun,-1));
   var prev3Days = weekDays(prev3Sun, addD(prev2Sun,-1));
 
+  var colgroup = '<colgroup>'
+    + '<col style="width:140px">'
+    + '<col style="width:50px">';
+  for(var ci=0; ci<brands.length; ci++){
+    colgroup += '<col>';
+  }
+  colgroup += '<col>';
+  colgroup += '</colgroup>';
+
   var hd='<thead><tr>';
   hd+='<th style="background:#f8f9fa;text-align:center;min-width:64px;border-right:1px solid #e8eaed">날짜</th>';
   hd+='<th style="background:#f8f9fa;text-align:center;min-width:32px;border-right:1px solid #e8eaed">요일</th>';
@@ -536,7 +545,7 @@ function renderTrend(){
   }
 
   bd+='</tbody>';
-  document.getElementById('tTrend').innerHTML = hd+bd;
+  document.getElementById('tTrend').innerHTML = colgroup+hd+bd;
 }
 
 

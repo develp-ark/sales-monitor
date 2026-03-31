@@ -283,11 +283,19 @@ var FLAG_FILTER = {};
 
 // ★ 전역 브랜드 테마 (한 번만 정의)
 var bTheme={
-  '건우코리아':{color:'#3182F6',light:'#EBF3FE',grad:'linear-gradient(135deg,#EBF3FE 0%,#fff 60%)'},
-  '아리코':    {color:'#00B493',light:'#E8FAF6',grad:'linear-gradient(135deg,#E8FAF6 0%,#fff 60%)'},
-  '윰':       {color:'#F04452',light:'#FEECEE',grad:'linear-gradient(135deg,#FEECEE 0%,#fff 60%)'}
+  '건우코리아':{color:'#F04452',light:'#FEECEE',grad:'linear-gradient(135deg,#FEECEE 0%,#fff 60%)'},
+  '아리코':    {color:'#3182F6',light:'#EBF3FE',grad:'linear-gradient(135deg,#EBF3FE 0%,#fff 60%)'},
+  '윰':       {color:'#00B493',light:'#E8FAF6',grad:'linear-gradient(135deg,#E8FAF6 0%,#fff 60%)'}
 };
 var defaultTheme={color:'#6B7684',light:'#F2F3F5',grad:'linear-gradient(135deg,#F2F3F5 0%,#fff 60%)'};
+
+var BRAND_ORDER = ['아리코','윰','건우코리아'];
+function orderedBrands(obj){
+  obj = obj || {};
+  var arr = BRAND_ORDER.filter(function(b){ return obj[b]; });
+  Object.keys(obj).forEach(function(b){ if(arr.indexOf(b)===-1) arr.push(b); });
+  return arr;
+}
 
 
 document.getElementById('dateD').textContent = new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
@@ -328,7 +336,7 @@ function renderDash(){
 
   var DASH_SHEET_URL='https://docs.google.com/spreadsheets/d/1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw/edit';
   var h='<div class="dash-grid">';
-  var brandNames=Object.keys(D.brands);
+  var brandNames=orderedBrands(D.brands);
 
   for(var i=0;i<brandNames.length;i++){
     var b=brandNames[i];
@@ -379,7 +387,7 @@ function renderDash(){
 
 function renderTrend(){
   if(!D||!D.dates||!D.dates.length) return;
-  var brands = Object.keys(D.brands||{});
+  var brands = orderedBrands(D.brands||{});
   var dt = D.dailyTrend || {};
   var dn = ['일','월','화','수','목','금','토'];
   var tTheme = brands.map(function(b){
@@ -535,7 +543,7 @@ function renderTrend(){
 function renderInsight(){
   var tabsEl=document.getElementById('bTabs');
   var contEl=document.getElementById('bContents');
-  var brands=Object.keys((D&&D.brands)||{});
+  var brands=orderedBrands((D&&D.brands)||{});
   if(!brands.length){tabsEl.innerHTML='';contEl.innerHTML='<div class="empty" style="padding:20px">데이터가 없습니다.</div>';return;}
 
   var iTheme = brands.map(function(b){
@@ -751,7 +759,7 @@ function goInsight(brand){
 }
 
 function brandTab(brand,el,idx){
-  var brands = Object.keys((D&&D.brands)||{});
+  var brands = orderedBrands((D&&D.brands)||{});
   var tabTheme = brands.map(function(b){
     var t = bTheme[b] || defaultTheme;
     return {accent:t.color, tabBg:t.light};
@@ -944,9 +952,9 @@ var smItems = [];
 var smActiveBrand = '';
 var smActiveFlag = '';
 var brandColor = {
-  '건우코리아':{color:'#3182F6',bg:'#EBF3FE'},
-  '아리코':{color:'#00B493',bg:'#E8FAF6'},
-  '윰':{color:'#F04452',bg:'#FEECEE'}
+  '건우코리아':{color:'#F04452',bg:'#FEECEE'},
+  '아리코':{color:'#3182F6',bg:'#EBF3FE'},
+  '윰':{color:'#00B493',bg:'#E8FAF6'}
 };
 var defBC = {color:'#6B7684',bg:'#F2F3F5'};
 var flagStyle = {
@@ -962,7 +970,9 @@ async function renderSkuManage(){
   var result = await resp.json();
   smItems = (result.ok && result.data) ? result.data : [];
 
-  var brands = [...new Set(smItems.map(function(r){return r.brand}))].filter(Boolean).sort();
+  var brandObj = {};
+  smItems.forEach(function(r){ if(r.brand) brandObj[r.brand] = 1; });
+  var brands = orderedBrands(brandObj);
   var today = new Date().toISOString().slice(0,10);
 
   var h = '';
@@ -984,7 +994,9 @@ async function renderSkuManage(){
 
 function renderSmOverview(){
   var today = new Date().toISOString().slice(0,10);
-  var brands = [...new Set(smItems.map(function(r){return r.brand}))].filter(Boolean).sort();
+  var brandObj = {};
+  smItems.forEach(function(r){ if(r.brand) brandObj[r.brand] = 1; });
+  var brands = orderedBrands(brandObj);
 
   var todayItems = smItems.filter(function(r){return r.last_collected && r.last_collected.slice(0,10)===today});
   var needCollect = smItems.filter(function(r){

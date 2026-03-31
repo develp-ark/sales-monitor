@@ -2,6 +2,29 @@ const { google } = require('googleapis');
 
 const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
+const BRAND_COLORS = {
+  '건우코리아': {
+    header: { red: 0.94, green: 0.27, blue: 0.32 },
+    headerText: { red: 1, green: 1, blue: 1 },
+    light: { red: 1, green: 0.93, blue: 0.93 },
+  },
+  '아리코': {
+    header: { red: 0.19, green: 0.51, blue: 0.96 },
+    headerText: { red: 1, green: 1, blue: 1 },
+    light: { red: 0.92, green: 0.95, blue: 1 },
+  },
+  '윰': {
+    header: { red: 0, green: 0.71, blue: 0.58 },
+    headerText: { red: 1, green: 1, blue: 1 },
+    light: { red: 0.91, green: 0.98, blue: 0.96 },
+  },
+};
+const DEFAULT_BRAND_SHEET_COLOR = {
+  header: { red: 0.24, green: 0.52, blue: 0.78 },
+  headerText: { red: 1, green: 1, blue: 1 },
+  light: { red: 0.85, green: 0.95, blue: 0.85 },
+};
+
 async function getSheetsAsync() {
   const raw = process.env.GOOGLE_PRIVATE_KEY || '';
   const email = process.env.GOOGLE_CLIENT_EMAIL || '';
@@ -193,6 +216,8 @@ async function syncBrandSheet(brandName, rows) {
   const totalCols = fixedCols + allDates.length;
   const totalRows = allRows.length;
 
+  const bc = BRAND_COLORS[brandName] || DEFAULT_BRAND_SHEET_COLOR;
+
   const requests = [
     {
       updateSheetProperties: {
@@ -211,8 +236,8 @@ async function syncBrandSheet(brandName, rows) {
         range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 0.24, green: 0.52, blue: 0.78 },
-            textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+            backgroundColor: bc.header,
+            textFormat: { bold: true, foregroundColor: bc.headerText },
             horizontalAlignment: 'CENTER'
           }
         },
@@ -237,7 +262,7 @@ async function syncBrandSheet(brandName, rows) {
         range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 2 },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 0.85, green: 0.95, blue: 0.85 }
+            backgroundColor: bc.light
           }
         },
         fields: 'userEnteredFormat.backgroundColor'

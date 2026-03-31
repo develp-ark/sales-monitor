@@ -671,50 +671,49 @@ module.exports = async (req, res) => {
     req.pipe(bb);
     await done;
 
-    // ── Google Sheets 동기화 ──
+    // ── Google Sheets 동기화 (백그라운드) ──
     const skipSync = req.query && req.query.skipSync === '1';
-    let sheetsMsg = '';
     if (!skipSync) {
-      try {
-        const allBrands = await db.execute(
-          "SELECT DISTINCT brand FROM sales WHERE brand != ''"
-        );
-        for (const bRow of allBrands.rows) {
-          const brandName = bRow.brand;
-          const brandData = await db.execute({
-            sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
-            args: [brandName]
-          });
-          const rows = brandData.rows.map(r => ({
-            date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
-            sales: Number(r.sales) || 0, stock: r.stock, status: r.status
-          }));
-          await syncBrandSheet(brandName, rows);
-        }
+      // 응답 후 백그라운드로 실행 (await 없음)
+      (async () => {
+        try {
+          const allBrands = await db.execute(
+            "SELECT DISTINCT brand FROM sales WHERE brand != ''"
+          );
+          for (const bRow of allBrands.rows) {
+            const brandName = bRow.brand;
+            const brandData = await db.execute({
+              sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
+              args: [brandName]
+            });
+            const rows = brandData.rows.map(r => ({
+              date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
+              sales: Number(r.sales) || 0, stock: r.stock, status: r.status
+            }));
+            await syncBrandSheet(brandName, rows);
+          }
 
-        const trendRows = await db.execute(
-          'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
-        );
-        const trendByBrand = {};
-        for (const r of trendRows.rows) {
-          if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
-          trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
+          const trendRows = await db.execute(
+            'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
+          );
+          const trendByBrand = {};
+          for (const r of trendRows.rows) {
+            if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
+            trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
+          }
+          await syncDailyTrend(trendByBrand);
+          console.log('[Sheets] background sync complete');
+        } catch (e) {
+          console.error('[Sheets background sync error]', e.message);
         }
-        await syncDailyTrend(trendByBrand);
-
-        console.log('[Sheets] full DB sync complete');
-        sheetsMsg = ' + 시트 동기화 완료';
-      } catch (e) {
-        console.error('[Sheets sync error]', e.message);
-        sheetsMsg = ' (시트 동기화 실패: ' + e.message + ')';
-      }
+      })();
     }
 
     return res.status(200).json({
       ok: true,
       rows: totalRows,
       fileBrand: fileBrandFromName,
-      message: `${totalRows.toLocaleString()}행 반영 완료${sheetsMsg}`,
+      message: `${totalRows.toLocaleString()}행 반영 완료 (시트 동기화 진행중)`,
     });
   } catch (e) {
     console.error(e);

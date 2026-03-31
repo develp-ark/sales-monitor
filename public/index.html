@@ -492,8 +492,22 @@ function renderTrend(){
       +'</td></tr>';
   }
 
-
-
+  // 당월 날짜를 주 단위로 분할하여 일별 표시
+  var monthDays = (D.dates||[]).filter(function(d){ return d >= currentMonth1st && d <= today; }).sort();
+  var monthWeeks = [];
+  var tw = [];
+  for(var mi=0; mi<monthDays.length; mi++){
+    tw.push(monthDays[mi]);
+    if(dayOfWeek(monthDays[mi]) === 6 || mi === monthDays.length - 1){
+      monthWeeks.push(tw);
+      tw = [];
+    }
+  }
+  monthWeeks.reverse();
+  for(var mw=0; mw<monthWeeks.length; mw++){
+    var wLabel = mw === 0 ? '이번 주' : mw + '주 전';
+    renderWeekBlock(monthWeeks[mw], wLabel);
+  }
 
   var olderDates = (D.dates||[]).filter(function(d){return d<cutoff;});
   if(olderDates.length>0){

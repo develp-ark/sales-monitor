@@ -31,7 +31,7 @@ const PERIODS = [
 // 메모리 캐시
 let _cache = null;
 let _cacheTime = 0;
-const CACHE_TTL = 3 * 60 * 1000;
+const CACHE_TTL = 10 * 60 * 1000; // 10분
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {

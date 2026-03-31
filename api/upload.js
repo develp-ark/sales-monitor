@@ -2,6 +2,7 @@ const { google } = require('googleapis');
 
 const SPREADSHEET_ID = '1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw';
 
+// ── 브랜드별 컬러 ──
 const BRAND_COLORS = {
   '건우코리아': {
     header: { red: 0.94, green: 0.27, blue: 0.32 },
@@ -19,42 +20,41 @@ const BRAND_COLORS = {
     light: { red: 0.91, green: 0.98, blue: 0.96 },
   },
 };
-const DEFAULT_BRAND_SHEET_COLOR = {
+const DEFAULT_BRAND_COLOR = {
   header: { red: 0.24, green: 0.52, blue: 0.78 },
   headerText: { red: 1, green: 1, blue: 1 },
-  light: { red: 0.85, green: 0.95, blue: 0.85 },
+  light: { red: 0.9, green: 0.93, blue: 1 },
 };
+
+function getBrandColor(name) {
+  return BRAND_COLORS[name] || DEFAULT_BRAND_COLOR;
+}
 
 async function getSheetsAsync() {
   const raw = process.env.GOOGLE_PRIVATE_KEY || '';
   const email = process.env.GOOGLE_CLIENT_EMAIL || '';
-  
   console.log('[SHEETS AUTH] email:', email.length, 'key:', raw.length, 'hasNewline:', raw.includes('\n'));
-  
-  // test-sheets.js와 동일한 방식
   let key = raw;
   if (raw.length > 0 && !raw.includes('\n') && raw.includes('\\n')) {
     key = raw.replace(/\\n/g, '\n');
   }
-  
   console.log('[SHEETS AUTH] final key length:', key.length, 'lines:', key.split('\n').length);
-  
   const auth = new google.auth.JWT({
     email: email,
     key: key,
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
-  
   await auth.authorize();
   console.log('[SHEETS AUTH] authorize success');
   return google.sheets({ version: 'v4', auth });
 }
 
 
-
 async function syncBrandSheet(brandName, rows) {
   const sheets = await getSheetsAsync();
   if (!sheets) return;
+
+  const bc = getBrandColor(brandName);
 
   // 1) 시트 존재 확인 / 생성
   let sheetId;
@@ -82,10 +82,14 @@ async function syncBrandSheet(brandName, rows) {
     existingRows = res.data.values || [];
   } catch (e) {
     console.log('[SHEETS] No existing data, starting fresh');
+    // 시트가 존재하는데 읽기 실패한 경우 → 아카이브 보호를 위해 중단
+    if (existing) {
+      console.error('[SHEETS] ⚠️ 기존 시트 읽기 실패 - 아카이브 보호를 위해 동기화 중단:', e.message);
+      return;
+    }
   }
 
   // 3) 기존 데이터를 SKU Map으로 변환
-  // skuMap[sku_id] = { name, stock, status, latestDate, dates: { 'MM-DD': sales } }
   const skuMap = {};
   let existingDates = [];
   const fixedCols = 4;
@@ -128,11 +132,10 @@ async function syncBrandSheet(brandName, rows) {
     }
   }
 
-  // 4) 새 데이터 병합 (덮어쓰기 방식)
+  // 4) 새 데이터 병합
   for (const row of rows) {
     const skuId = String(row.sku_id || '').trim();
     if (!skuId) continue;
-
     const dateRaw = row.date;
     const dateKey = dateRaw ? dateRaw.slice(5) : null;
     if (!dateKey) continue;
@@ -140,7 +143,6 @@ async function syncBrandSheet(brandName, rows) {
     if (!skuMap[skuId]) {
       skuMap[skuId] = { name: row.sku_name || '', stock: '', status: '', latestDate: '', dates: {} };
     }
-
     skuMap[skuId].dates[dateKey] = Number(row.sales) || 0;
 
     if (!skuMap[skuId].latestDate || dateKey > skuMap[skuId].latestDate) {
@@ -154,7 +156,7 @@ async function syncBrandSheet(brandName, rows) {
     }
   }
 
-  // 5) 전체 날짜 목록 생성 및 정렬 (MM-DD 순)
+  // 5) 전체 날짜 목록 생성 및 정렬
   const allDatesSet = new Set();
   for (const sku of Object.values(skuMap)) {
     for (const d of Object.keys(sku.dates)) {
@@ -168,10 +170,10 @@ async function syncBrandSheet(brandName, rows) {
     return ad - bd;
   });
 
-  // 6) 헤더 행 구성 (A~D: SKU ID, SKU명, 재고, 상태)
+  // 6) 헤더 행
   const headerRow = ['SKU ID', 'SKU명', '재고', '상태', ...allDates];
 
-  // 7) 합계 행 계산
+  // 7) 합계 행
   const sumRow = ['합계', '', '', ''];
   for (const d of allDates) {
     let total = 0;
@@ -181,7 +183,7 @@ async function syncBrandSheet(brandName, rows) {
     sumRow.push(total);
   }
 
-  // 8) SKU 행 구성 (SKU명 한국어순 정렬)
+  // 8) SKU 행 (한국어순 정렬)
   const skuIds = Object.keys(skuMap).sort((a, b) => {
     const na = skuMap[a].name || '';
     const nb = skuMap[b].name || '';
@@ -215,163 +217,289 @@ async function syncBrandSheet(brandName, rows) {
   // 10) 서식 적용
   const totalCols = fixedCols + allDates.length;
   const totalRows = allRows.length;
+  const requests = [];
 
-  const bc = BRAND_COLORS[brandName] || DEFAULT_BRAND_SHEET_COLOR;
+  // ① 기존 필터 제거 (있으면)
+  if (existing) {
+    requests.push({ clearBasicFilter: { sheetId } });
+  }
 
-  const requests = [
-    {
-      updateSheetProperties: {
-        properties: {
-          sheetId,
-          gridProperties: {
-            frozenRowCount: 2,
-            frozenColumnCount: 4
-          }
-        },
-        fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
+  // ② 전체 흰색 초기화
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 1, green: 1, blue: 1 },
+          textFormat: { bold: false, foregroundColor: { red: 0, green: 0, blue: 0 } }
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat)'
+    }
+  });
+
+  // ③ 고정 행/열
+  requests.push({
+    updateSheetProperties: {
+      properties: { sheetId, gridProperties: { frozenRowCount: 2, frozenColumnCount: 4 } },
+      fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
+    }
+  });
+
+  // ④ 헤더 행 (브랜드 컬러)
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: bc.header,
+          textFormat: { bold: true, foregroundColor: bc.headerText },
+          horizontalAlignment: 'CENTER'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    }
+  });
+
+  // ⑤ 합계 행
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
+          textFormat: { bold: true },
+          horizontalAlignment: 'CENTER'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    }
+  });
+
+  // ⑥ 판매 데이터 영역 가운데 정렬
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: fixedCols, endColumnIndex: totalCols },
+      cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+      fields: 'userEnteredFormat.horizontalAlignment'
+    }
+  });
+
+  // ⑦ 판매량 > 0인 셀 → 연한 브랜드컬러 (조건부 서식, 요청 1개)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{ sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: fixedCols, endColumnIndex: totalCols }],
+        booleanRule: {
+          condition: { type: 'NUMBER_GREATER', values: [{ userEnteredValue: '0' }] },
+          format: { backgroundColor: bc.light }
+        }
+      },
+      index: 0
+    }
+  });
+
+  // ⑧ 필터 (전체 범위)
+  requests.push({
+    setBasicFilter: {
+      filter: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
       }
-    },
-    {
+    }
+  });
+
+  // ⑨ 열 너비
+  requests.push(
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 120 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 250 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 }, properties: { pixelSize: 80 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: fixedCols, endIndex: totalCols }, properties: { pixelSize: 60 }, fields: 'pixelSize' } }
+  );
+
+  // 분할 실행 (Sheets API 제한 대응)
+  const CHUNK = 500;
+  for (let i = 0; i < requests.length; i += CHUNK) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: requests.slice(i, i + CHUNK) }
+    });
+  }
+
+  console.log(`[SHEETS] ${brandName} synced: ${skuIds.length} SKUs × ${allDates.length} dates, ${requests.length} fmt reqs`);
+}
+
+
+async function syncDailyTrend(brandRows) {
+  const sheets = await getSheetsAsync();
+  const title = 'daily_trend';
+  let sheetId;
+
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const found = meta.data.sheets.find(s => s.properties.title === title);
+    if (found) {
+      sheetId = found.properties.sheetId;
+    } else {
+      const addRes = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title } } }] }
+      });
+      sheetId = addRes.data.replies[0].addSheet.properties.sheetId;
+    }
+  } catch (e) { console.error('Sheet check error:', e.message); return; }
+
+  // 브랜드 순서 고정
+  const BRAND_ORDER = ['아리코', '윰', '건우코리아'];
+  const allBrands = Object.keys(brandRows);
+  const allDates = new Set();
+  for (const b of allBrands) for (const r of brandRows[b]) allDates.add(r.date);
+
+  const brands = BRAND_ORDER.filter(b => allBrands.includes(b));
+  allBrands.forEach(b => { if (!brands.includes(b)) brands.push(b); });
+
+  const dates = [...allDates].sort().reverse();
+  const maps = {};
+  for (const b of brands) {
+    maps[b] = {};
+    for (const r of (brandRows[b] || [])) maps[b][r.date] = (maps[b][r.date] || 0) + r.totalSales;
+  }
+  const header = ['date', ...brands, 'total'];
+  const dataRows = dates.map(d => {
+    const vals = brands.map(b => maps[b][d] || 0);
+    return [d, ...vals, vals.reduce((a, c) => a + c, 0)];
+  });
+
+  try {
+    await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: title + '!A:Z' });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID, range: title + '!A1',
+      valueInputOption: 'RAW', requestBody: { values: [header, ...dataRows] }
+    });
+    console.log('[Sheets] daily_trend: ' + dataRows.length + ' rows');
+  } catch (e) { console.error('[Sheets] trend error:', e.message); return; }
+
+  // ── 데일리트렌드 서식 ──
+  if (sheetId == null) return;
+
+  const totalCols = header.length;
+  const totalRows = dataRows.length + 1;
+  const brandColColors = brands.map(b => getBrandColor(b));
+  const requests = [];
+
+  // 고정 행/열
+  requests.push({
+    updateSheetProperties: {
+      properties: { sheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 } },
+      fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
+    }
+  });
+
+  // 헤더 — date 열
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 0.3, green: 0.3, blue: 0.3 },
+          textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+          horizontalAlignment: 'CENTER'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    }
+  });
+
+  // 헤더 — 각 브랜드 열
+  for (let i = 0; i < brands.length; i++) {
+    const color = brandColColors[i];
+    requests.push({
       repeatCell: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: i + 1, endColumnIndex: i + 2 },
         cell: {
           userEnteredFormat: {
-            backgroundColor: bc.header,
-            textFormat: { bold: true, foregroundColor: bc.headerText },
+            backgroundColor: color.header,
+            textFormat: { bold: true, foregroundColor: color.headerText },
             horizontalAlignment: 'CENTER'
           }
         },
         fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
       }
-    },
-    {
+    });
+  }
+
+  // 헤더 — total 열
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: totalCols - 1, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+          textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+          horizontalAlignment: 'CENTER'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    }
+  });
+
+  // 데이터 — 각 브랜드 열 연한 컬러
+  for (let i = 0; i < brands.length; i++) {
+    const color = brandColColors[i];
+    requests.push({
       repeatCell: {
-        range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: totalCols },
+        range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: i + 1, endColumnIndex: i + 2 },
         cell: {
           userEnteredFormat: {
-            backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
-            textFormat: { bold: true },
-            horizontalAlignment: 'CENTER'
-          }
-        },
-        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-      }
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 2 },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: bc.light
-          }
-        },
-        fields: 'userEnteredFormat.backgroundColor'
-      }
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: fixedCols, endColumnIndex: totalCols },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: { red: 0.9, green: 0.93, blue: 1 },
+            backgroundColor: color.light,
             horizontalAlignment: 'CENTER'
           }
         },
         fields: 'userEnteredFormat(backgroundColor,horizontalAlignment)'
       }
-    },
-    {
-      setBasicFilter: {
-        filter: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
-        }
-      }
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
-        properties: { pixelSize: 120 },
-        fields: 'pixelSize'
-      }
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
-        properties: { pixelSize: 250 },
-        fields: 'pixelSize'
-      }
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 },
-        properties: { pixelSize: 80 },
-        fields: 'pixelSize'
-      }
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: fixedCols, endIndex: totalCols },
-        properties: { pixelSize: 60 },
-        fields: 'pixelSize'
-      }
-    }
-  ];
-
-  for (let r = 2; r < totalRows; r++) {
-    for (let c = fixedCols; c < totalCols; c++) {
-      if (allRows[r][c] === 0) {
-        requests.push({
-          repeatCell: {
-            range: { sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: c, endColumnIndex: c + 1 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 1, green: 0.8, blue: 0.8 }
-              }
-            },
-            fields: 'userEnteredFormat.backgroundColor'
-          }
-        });
-      }
-    }
+    });
   }
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
-    requestBody: { requests }
+  // date 열 가운데 정렬
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 1 },
+      cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+      fields: 'userEnteredFormat.horizontalAlignment'
+    }
   });
 
-  console.log(`[SHEETS] ${brandName} synced: ${skuIds.length} SKUs × ${allDates.length} dates`);
-}
-
-
-
-async function syncDailyTrend(brandRows) {
-  const sheets = await getSheetsAsync()
-  const title = 'daily_trend';
-  try {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-    const exists = meta.data.sheets.some(s => s.properties.title === title);
-    if (!exists) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        requestBody: { requests: [{ addSheet: { properties: { title: title } } }] }
-      });
+  // total 열 — 회색 + 볼드
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: totalCols - 1, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 0.92, green: 0.92, blue: 0.92 },
+          textFormat: { bold: true },
+          horizontalAlignment: 'CENTER'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
     }
-  } catch (e) { console.error('Sheet check error:', e.message); return; }
-  const allDates = new Set();
-  const brands = Object.keys(brandRows);
-  for (const b of brands) for (const r of brandRows[b]) allDates.add(r.date);
-  const dates = [...allDates].sort().reverse();
-  const maps = {};
-  for (const b of brands) { maps[b] = {}; for (const r of brandRows[b]) maps[b][r.date] = (maps[b][r.date] || 0) + r.totalSales; }
-  const header = ['date', ...brands, 'total'];
-  const dataRows = dates.map(d => { const vals = brands.map(b => maps[b][d] || 0); return [d, ...vals, vals.reduce((a, c) => a + c, 0)]; });
+  });
+
+  // 열 너비
+  requests.push(
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 110 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: totalCols }, properties: { pixelSize: 90 }, fields: 'pixelSize' } }
+  );
+
   try {
-    await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: title + '!A:Z' });
-    await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: title + '!A1', valueInputOption: 'RAW', requestBody: { values: [header, ...dataRows] } });
-    console.log('[Sheets] daily_trend: ' + dataRows.length + ' rows');
-  } catch (e) { console.error('[Sheets] trend error:', e.message); }
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests }
+    });
+    console.log('[Sheets] daily_trend formatted');
+  } catch (e) {
+    console.error('[Sheets] trend format error:', e.message);
+  }
 }
+
 
 const Busboy = require('busboy');
 const { parse } = require('csv-parse');
@@ -389,23 +517,17 @@ function detectBrandFromFilename(name) {
   return null;
 }
 
-
 function normalizeHeader(cell) {
-  const s = String(cell ?? '')
-    .trim()
-    .replace(/^\ufeff/, '');
+  const s = String(cell ?? '').trim().replace(/^\ufeff/, '');
   const u = s.toLowerCase();
-
   if (s === '날짜') return 'date';
   if (s === '브랜드') return 'brandCsv';
   if (u === 'sku id' || u === 'skuid' || u === 'sku_id') return 'sku_id';
-  // SKU 명 - 공백 유무 모두 처리
   if (/^sku\s*명$/i.test(s)) return 'sku_name';
   if (s === '판매량' || s === '출고수량') return 'sales';
   if (s === '재고' || s === '현재재고수량') return 'stock';
   if (s === '상태' || s === '발주가능상태') return 'status';
   if (s === '품절여부') return 'outOfStock';
-
   return s;
 }
 
@@ -416,17 +538,12 @@ function pickColumns(header) {
 function toISODate(v) {
   if (v == null || v === '') return null;
   const s = String(v).trim().replace(/\./g, '-').replace(/\//g, '-');
-
-  // 8자리 숫자: 20260325 → 2026-03-25
   const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (m8) return `${m8[1]}-${m8[2]}-${m8[3]}`;
-
   const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-
   const m2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
   if (m2) return `${m2[3]}-${m2[1].padStart(2, '0')}-${m2[2].padStart(2, '0')}`;
-
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
@@ -512,12 +629,11 @@ module.exports = async (req, res) => {
       let chain = Promise.resolve();
 
       bb.on('file', (fieldname, fileStream, info) => {
-              const filename = (info && info.filename) || '';
-              console.log('[UPLOAD] raw filename:', filename);
-              console.log('[UPLOAD] info object:', JSON.stringify(info));
-              fileBrandFromName = detectBrandFromFilename(filename);
-              console.log('[UPLOAD] detected brand:', fileBrandFromName);
-
+        const filename = (info && info.filename) || '';
+        console.log('[UPLOAD] raw filename:', filename);
+        console.log('[UPLOAD] info object:', JSON.stringify(info));
+        fileBrandFromName = detectBrandFromFilename(filename);
+        console.log('[UPLOAD] detected brand:', fileBrandFromName);
 
         const parser = parse({
           columns: pickColumns,
@@ -555,7 +671,7 @@ module.exports = async (req, res) => {
     req.pipe(bb);
     await done;
 
-    // ── Google Sheets 동기화 (응답 전에 실행) ──
+    // ── Google Sheets 동기화 ──
     const skipSync = req.query && req.query.skipSync === '1';
     let sheetsMsg = '';
     if (!skipSync) {
@@ -571,7 +687,7 @@ module.exports = async (req, res) => {
           });
           const rows = brandData.rows.map(r => ({
             date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
-            sales: Number(r.sales)||0, stock: r.stock, status: r.status
+            sales: Number(r.sales) || 0, stock: r.stock, status: r.status
           }));
           await syncBrandSheet(brandName, rows);
         }

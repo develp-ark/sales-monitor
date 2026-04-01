@@ -749,8 +749,7 @@ module.exports = async (req, res) => {
     await done;
 
     // ── Google Sheets 동기화 (백그라운드) ──
-    const skipSync = req.query && req.query.skipSync === '1';
-    if (!skipSync && fileBrandFromName) {
+    if (fileBrandFromName) {
       (async () => {
         try {
           // 업로드된 브랜드만 시트 동기화

@@ -915,7 +915,7 @@ async function handleFiles(files){
           var blob=new Blob([chunks[c]],{type:'text/csv'});
           var fd=new FormData();
           fd.append('file',blob,f.name);
-          var url=isLast?'/api/upload':'/api/upload?skipSync=1';
+          var url='/api/upload';
           var r=await fetch(url,{method:'POST',body:fd});
           var d=await r.json();
           totalRows+=(d.rows||0);
@@ -931,7 +931,7 @@ async function handleFiles(files){
         var blob=new Blob([f.text],{type:'text/csv'});
         var fd=new FormData();
         fd.append('file',blob,f.name);
-        var url=isLastSalesFile?'/api/upload':'/api/upload?skipSync=1';
+        var url='/api/upload';
         var r=await fetch(url,{method:'POST',body:fd});
         var d=await r.json();
         totalRows+=(d.rows||0);

@@ -627,14 +627,15 @@ function num(v, def = 0) {
   return Number.isFinite(n) ? n : def;
 }
 
-const UPSERT_SQL = `INSERT INTO sales (date, brand, sku_id, sku_name, sales, stock, status, revenue)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+const UPSERT_SQL = `INSERT INTO sales (date, brand, sku_id, sku_name, sales, stock, status, oos_flag, revenue)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(date, sku_id) DO UPDATE SET
   brand = excluded.brand,
   sku_name = excluded.sku_name,
   sales = excluded.sales,
   stock = excluded.stock,
   status = excluded.status,
+  oos_flag = excluded.oos_flag,
   revenue = excluded.revenue`;
 
 function mergeRows(rows) {
@@ -650,6 +651,7 @@ function mergeRows(rows) {
       if (r.sku_name) existing.sku_name = r.sku_name;
       if (r.status) existing.status = r.status;
       if (r.brand) existing.brand = r.brand;
+      if (r.oos_flag != null && String(r.oos_flag).trim() !== '') existing.oos_flag = r.oos_flag;
     } else {
       map.set(key, { ...r });
     }
@@ -661,7 +663,7 @@ async function flushBatch(db, batch) {
   if (!batch.length) return;
   const stmts = batch.map((row) => ({
     sql: UPSERT_SQL,
-    args: [row.date, row.brand, row.sku_id, row.sku_name, row.sales, row.stock, row.status, row.revenue],
+    args: [row.date, row.brand, row.sku_id, row.sku_name, row.sales, row.stock, row.status, row.oos_flag ?? '', row.revenue],
   }));
   await db.batch(stmts);
 }
@@ -677,12 +679,13 @@ function rowFromRecord(rec, fileBrand) {
   const stockVal = rec.stock;
   const stock = stockVal === '' || stockVal == null ? null : num(stockVal, 0);
 
-  let status = rec.status != null ? String(rec.status).trim() : '';
-  if (rec.outOfStock && String(rec.outOfStock).trim().toUpperCase() === 'Y') {
-    status = '품절';
-  }
+  const status = rec.status != null ? String(rec.status).trim() : '';
+  const oosRaw = rec.outOfStock != null ? String(rec.outOfStock).trim().toUpperCase() : '';
+  let oos_flag = '';
+  if (oosRaw === 'Y' || oosRaw === 'YES') oos_flag = 'Y';
+  else if (oosRaw === 'N' || oosRaw === 'NO') oos_flag = 'N';
 
-  return { date, brand, sku_id, sku_name, sales, stock, status, revenue: 0 };
+  return { date, brand, sku_id, sku_name, sales, stock, status, oos_flag, revenue: 0 };
 }
 
 module.exports = async (req, res) => {

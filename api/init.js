@@ -10,6 +10,7 @@ const STATEMENTS = [
   sales INTEGER DEFAULT 0,
   stock INTEGER,
   status TEXT,
+  oos_flag TEXT,
   revenue INTEGER DEFAULT 0,
   UNIQUE(date, sku_id)
 )`,
@@ -36,6 +37,12 @@ module.exports = async (req, res) => {
     const db = getDb();
     for (const sql of STATEMENTS) {
       await db.execute(sql);
+    }
+    try {
+      await db.execute('ALTER TABLE sales ADD COLUMN oos_flag TEXT');
+    } catch (e) {
+      const m = String(e && e.message || '');
+      if (!m.includes('duplicate') && !m.includes('Duplicate')) throw e;
     }
     return res.status(200).json({ ok: true, message: '테이블이 준비되었습니다.' });
   } catch (e) {

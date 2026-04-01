@@ -15,11 +15,38 @@ function dateRangeInclusive(start, end) {
   return out;
 }
 
-function isOosRow(stock, status) {
-  const st = status != null ? String(status) : '';
-  if (st.includes('품절')) return true;
-  if (stock == null) return false;
-  return Number(stock) === 0;
+/** 발주가능상태가 "발주가능"이고 품절여부(Y/YES)인 SKU만 인사이트 품절·카운트에 포함 */
+function isOrderableStatus(status) {
+  return String(status ?? '').trim() === '발주가능';
+}
+function isOosFlagYes(v) {
+  const u = String(v ?? '').trim().toUpperCase();
+  return u === 'Y' || u === 'YES';
+}
+function isInsightListedOos(row) {
+  return isOrderableStatus(row.status) && isOosFlagYes(row.oos_flag);
+}
+
+/** 최근일부터 역으로 연속 출고 0 구간의 맨 앞 날짜(ISO) */
+function findOosSalesStartIso(datesAsc, dateToSales) {
+  const n = datesAsc.length;
+  if (!n) return null;
+  let j = n - 1;
+  while (j >= 0) {
+    const v = Number(dateToSales[datesAsc[j]]) || 0;
+    if (v > 0) break;
+    j--;
+  }
+  const zi = j + 1;
+  if (zi >= n) return null;
+  return datesAsc[zi];
+}
+
+function fmtOosStartLabel(iso) {
+  if (!iso) return '—';
+  const p = String(iso).split('-');
+  if (p.length !== 3) return String(iso) + '~';
+  return `${Number(p[1])}/${Number(p[2])}~`;
 }
 
 const PERIODS = [
@@ -73,7 +100,7 @@ module.exports = async (req, res) => {
     const [todayAgg, sum7Agg, skuLatest, dailyTrendRows] = await Promise.all([
       db.execute({ sql: 'SELECT brand, SUM(sales) AS s FROM sales WHERE date = ? GROUP BY brand', args: [latestDate] }),
       db.execute({ sql: 'SELECT brand, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand', args: [addDays(latestDate, -6), latestDate] }),
-      db.execute({ sql: 'SELECT brand, sku_id, sku_name, sales, stock, status FROM sales WHERE date = ?', args: [latestDate] }),
+      db.execute({ sql: 'SELECT brand, sku_id, sku_name, sales, stock, status, oos_flag FROM sales WHERE date = ?', args: [latestDate] }),
       db.execute({ sql: 'SELECT brand, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, date', args: [start365, latestDate] }),
     ]);
 
@@ -104,7 +131,7 @@ module.exports = async (req, res) => {
       if (!skuCountByBrand[b]) { skuCountByBrand[b] = new Set(); stockSumByBrand[b] = 0; oosByBrand[b] = 0; }
       skuCountByBrand[b].add(String(row.sku_id));
       if (row.stock != null && row.stock !== '') stockSumByBrand[b] += Number(row.stock)||0;
-      if (isOosRow(row.stock, row.status)) oosByBrand[b] += 1;
+      if (isInsightListedOos(row)) oosByBrand[b] += 1;
     }
 
     const allBrands = new Set([...Object.keys(todayMap), ...Object.keys(sum7Map), ...Object.keys(skuCountByBrand)]);
@@ -156,13 +183,6 @@ module.exports = async (req, res) => {
     });
 
     // ── brandInsights: 단일 쿼리로 처리 (12개 → 1개) ──
-    const oosLatestByBrand = {};
-    for (const row of skuLatest.rows) {
-      if (!isOosRow(row.stock, row.status)) continue;
-      if (!oosLatestByBrand[row.brand]) oosLatestByBrand[row.brand] = [];
-      oosLatestByBrand[row.brand].push({ sku_id: String(row.sku_id), sku_name: row.sku_name ?? '', stock: row.stock, status: row.status ?? '' });
-    }
-
     const allSkuDaily = await db.execute({
       sql: 'SELECT brand, sku_id, MAX(sku_name) AS sku_name, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, sku_id, date',
       args: [start365, latestDate],
@@ -174,6 +194,23 @@ module.exports = async (req, res) => {
       const k = row.brand + '||' + row.sku_id;
       if (!skuDailyMap[k]) skuDailyMap[k] = { brand: row.brand, sku_id: String(row.sku_id), sku_name: row.sku_name ?? '', dates: {} };
       skuDailyMap[k].dates[row.date] = Number(row.s)||0;
+    }
+
+    const oosLatestByBrand = {};
+    for (const row of skuLatest.rows) {
+      if (!isInsightListedOos(row)) continue;
+      const k = row.brand + '||' + row.sku_id;
+      const dm = (skuDailyMap[k] && skuDailyMap[k].dates) || {};
+      const oosStartIso = findOosSalesStartIso(dates, dm);
+      if (!oosLatestByBrand[row.brand]) oosLatestByBrand[row.brand] = [];
+      oosLatestByBrand[row.brand].push({
+        sku_id: String(row.sku_id),
+        sku_name: row.sku_name ?? '',
+        stock: row.stock,
+        status: row.status ?? '',
+        oos_start_iso: oosStartIso,
+        oos_start_label: fmtOosStartLabel(oosStartIso),
+      });
     }
 
     const brandInsights = {};

@@ -691,7 +691,8 @@ function mkBox(title,cls,arr,type,brand){
       h+='<span class="sv2 blue">'+num(Number(s.sales||0))+'개</span>';
     }else if(type==='out'){
       h+='<span class="tag tag-stk">재고 '+num(s.stock==null?0:s.stock)+'</span>';
-      h+='<span class="tag tag-out">'+esc(s.status||'품절')+'</span>';
+      h+='<span class="tag tag-out">품절</span>';
+      h+='<span class="tag tag-since">시작 '+esc(s.oos_start_label||'—')+'</span>';
     }else if(type==='up'){
       h+='<span class="tag tag-num">'+num(s.cur)+'개</span>'
         +'<span class="sv2 green">↑'+Math.round(s.rate)+'%</span>'

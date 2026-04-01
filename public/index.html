@@ -156,6 +156,7 @@ table.trend .tot{background:#fff8e1;font-weight:700}
 .tag-num{background:#e8f0fe;color:#1a73e8}
 .tag-stk{background:#f1f3f4;color:#5f6368}
 .tag-since{background:#fff3cd;color:#856404}
+.oos-since{font-size:11px;color:#9aa0a6;white-space:nowrap}
 .tag-flag{background:#e6f4ea;color:#137333;border:1px solid #ceead6}
 .empty{padding:24px;text-align:center;color:#9aa0a6;font-size:13px}
 
@@ -641,6 +642,15 @@ function recompute(brand){
   var bi=((D.brandInsights||{})[brand]||{})[String(CTRL.period)]||{topSales:[],oos:[],surgeUp:[],surgeDown:[]};
   var topSales=(bi.topSales||[]).slice().sort(function(a,b){return (b.sales||0)-(a.sales||0)}).slice(0,CTRL.topCount);
   var outOfStock=(bi.oos||[]).slice();
+  outOfStock.sort(function(a,b){
+    var salesDiff=(Number(b.sales)||0)-(Number(a.sales)||0);
+    if(salesDiff!==0) return salesDiff;
+    var ad=String(a.oosStartDate||a.oos_start_iso||'9999-12-31');
+    var bd=String(b.oosStartDate||b.oos_start_iso||'9999-12-31');
+    if(ad<bd) return -1;
+    if(ad>bd) return 1;
+    return 0;
+  });
   var rising=filterSurge(bi.surgeUp||[], true);
   var falling=filterSurge(bi.surgeDown||[], false);
   var grid=document.getElementById('igrid_'+brand);
@@ -691,8 +701,9 @@ function mkBox(title,cls,arr,type,brand){
       h+='<span class="sv2 blue">'+num(Number(s.sales||0))+'개</span>';
     }else if(type==='out'){
       h+='<span class="tag tag-stk">재고 '+num(s.stock==null?0:s.stock)+'</span>';
+      if(s.status) h+='<span class="tag tag-stk">'+esc(s.status)+'</span>';
       h+='<span class="tag tag-out">품절</span>';
-      h+='<span class="tag tag-since">시작 '+esc(s.oos_start_label||'—')+'</span>';
+      h+='<span class="oos-since" title="품절 시작일">'+esc(s.oos_start_label||'—')+'</span>';
     }else if(type==='up'){
       h+='<span class="tag tag-num">'+num(s.cur)+'개</span>'
         +'<span class="sv2 green">↑'+Math.round(s.rate)+'%</span>'

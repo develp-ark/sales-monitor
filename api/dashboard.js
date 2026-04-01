@@ -201,15 +201,18 @@ module.exports = async (req, res) => {
       if (!isInsightListedOos(row)) continue;
       const k = row.brand + '||' + row.sku_id;
       const dm = (skuDailyMap[k] && skuDailyMap[k].dates) || {};
-      const oosStartIso = findOosSalesStartIso(dates, dm);
+      const rawStart = findOosSalesStartIso(dates, dm);
+      const oosStartDate = rawStart || latestDate;
       if (!oosLatestByBrand[row.brand]) oosLatestByBrand[row.brand] = [];
       oosLatestByBrand[row.brand].push({
         sku_id: String(row.sku_id),
         sku_name: row.sku_name ?? '',
+        sales: Number(row.sales) || 0,
         stock: row.stock,
         status: row.status ?? '',
-        oos_start_iso: oosStartIso,
-        oos_start_label: fmtOosStartLabel(oosStartIso),
+        oosStartDate,
+        oos_start_iso: oosStartDate,
+        oos_start_label: fmtOosStartLabel(oosStartDate),
       });
     }
 

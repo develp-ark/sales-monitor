@@ -30,6 +30,24 @@ function getBrandColor(name) {
   return BRAND_COLORS[name] || DEFAULT_BRAND_COLOR;
 }
 
+/** 0-based column index → A1 letter (0→A, 25→Z, 26→AA) */
+function colToA1(zeroBasedCol) {
+  let n = zeroBasedCol + 1;
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function addDaysIso(isoDate, deltaDays) {
+  const x = new Date(`${isoDate}T12:00:00.000Z`);
+  x.setUTCDate(x.getUTCDate() + deltaDays);
+  return x.toISOString().slice(0, 10);
+}
+
 async function getSheetsAsync() {
   const raw = process.env.GOOGLE_PRIVATE_KEY || '';
   const email = process.env.GOOGLE_CLIENT_EMAIL || '';
@@ -101,10 +119,14 @@ async function syncBrandSheet(brandName, rows) {
     const h3 = String(header[3] || '').trim();
     const stockFirst = h2.includes('재고') || h3.includes('상태');
 
-    for (let r = 2; r < existingRows.length; r++) {
+    const row1First = String(existingRows[1]?.[0] ?? '').trim();
+    const row1IsSum = row1First === '합계' || row1First.startsWith('=');
+    const dataStartIndex = row1IsSum ? 2 : 1;
+
+    for (let r = dataStartIndex; r < existingRows.length; r++) {
       const row = existingRows[r];
       const skuId = String(row[0] || '').trim();
-      if (!skuId) continue;
+      if (!skuId || skuId === '합계') continue;
       const skuName = String(row[1] || '').trim();
       const stockCell = stockFirst ? row[2] : row[3];
       const statusCell = stockFirst ? row[3] : row[2];
@@ -173,14 +195,11 @@ async function syncBrandSheet(brandName, rows) {
   // 6) 헤더 행
   const headerRow = ['SKU ID', 'SKU명', '재고', '상태', ...allDates];
 
-  // 7) 합계 행
+  // 7) 합계 행 — 3행부터 데이터 기준 =SUM(col3:col) (시트에서 항상 정확히 합산)
   const sumRow = ['합계', '', '', ''];
-  for (const d of allDates) {
-    let total = 0;
-    for (const sku of Object.values(skuMap)) {
-      total += (sku.dates[d] || 0);
-    }
-    sumRow.push(total);
+  for (let ci = 0; ci < allDates.length; ci++) {
+    const col = colToA1(fixedCols + ci);
+    sumRow.push(`=SUM(${col}3:${col})`);
   }
 
   // 8) SKU 행 (한국어순 정렬)
@@ -210,7 +229,7 @@ async function syncBrandSheet(brandName, rows) {
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `${brandName}!A1`,
-    valueInputOption: 'RAW',
+    valueInputOption: 'USER_ENTERED',
     requestBody: { values: allRows }
   });
 
@@ -299,11 +318,11 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑧ 필터 (전체 범위)
+  // ⑧ 필터 — 1행은 헤더 제외, 2행(합계)부터 필터 영역 (필터 UI는 2행)
   requests.push({
     setBasicFilter: {
       filter: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
+        range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }
       }
     }
   });
@@ -357,39 +376,62 @@ async function syncDailyTrend(brandRows) {
   const brands = BRAND_ORDER.filter(b => allBrands.includes(b));
   allBrands.forEach(b => { if (!brands.includes(b)) brands.push(b); });
 
-  const dates = [...allDates].sort().reverse();
+  const datesDesc = [...allDates].sort().reverse();
   const maps = {};
   for (const b of brands) {
     maps[b] = {};
     for (const r of (brandRows[b] || [])) maps[b][r.date] = (maps[b][r.date] || 0) + r.totalSales;
   }
   const header = ['date', ...brands, 'total'];
-  const dataRows = dates.map(d => {
+
+  function sumBrandInDateRange(map, start, end) {
+    let s = 0;
+    for (const d of Object.keys(map)) {
+      if (d >= start && d <= end) s += Number(map[d]) || 0;
+    }
+    return s;
+  }
+
+  const latestDate = datesDesc[0] || '';
+  const start7 = latestDate ? addDaysIso(latestDate, -6) : '';
+  const brandSums7 = brands.map(b => (latestDate ? sumBrandInDateRange(maps[b], start7, latestDate) : 0));
+  const total7 = brandSums7.reduce((a, c) => a + c, 0);
+  const sum7Row = latestDate
+    ? [`최근7일 (${start7}~${latestDate})`, ...brandSums7, total7]
+    : ['최근7일 (데이터 없음)', ...brands.map(() => 0), 0];
+  const avg7Row = ['일평균 (÷7)', ...brandSums7.map(s => Math.round(s / 7)), Math.round(total7 / 7)];
+  const sepRow = new Array(header.length).fill('');
+  sepRow[0] = '▼ 일별 상세';
+
+  const dataRows = datesDesc.map(d => {
     const vals = brands.map(b => maps[b][d] || 0);
     return [d, ...vals, vals.reduce((a, c) => a + c, 0)];
   });
+
+  const allTrendRows = [header, sum7Row, avg7Row, sepRow, ...dataRows];
 
   try {
     await sheets.spreadsheets.values.clear({ spreadsheetId: SPREADSHEET_ID, range: title + '!A:Z' });
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID, range: title + '!A1',
-      valueInputOption: 'RAW', requestBody: { values: [header, ...dataRows] }
+      valueInputOption: 'RAW', requestBody: { values: allTrendRows }
     });
-    console.log('[Sheets] daily_trend: ' + dataRows.length + ' rows');
+    console.log('[Sheets] daily_trend: ' + dataRows.length + ' daily rows + 7일 요약');
   } catch (e) { console.error('[Sheets] trend error:', e.message); return; }
 
   // ── 데일리트렌드 서식 ──
   if (sheetId == null) return;
 
   const totalCols = header.length;
-  const totalRows = dataRows.length + 1;
+  const totalRows = allTrendRows.length;
+  const dataStartRow = 4; // 헤더(0) + 최근7일합(1) + 일평균(2) + 구분(3) + 일별(4~)
   const brandColColors = brands.map(b => getBrandColor(b));
   const requests = [];
 
-  // 고정 행/열
+  // 고정 행/열 — 요약·구분선까지 고정
   requests.push({
     updateSheetProperties: {
-      properties: { sheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 } },
+      properties: { sheetId, gridProperties: { frozenRowCount: 4, frozenColumnCount: 1 } },
       fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
     }
   });
@@ -442,39 +484,13 @@ async function syncDailyTrend(brandRows) {
     }
   });
 
-  // 데이터 — 각 브랜드 열 연한 컬러
-  for (let i = 0; i < brands.length; i++) {
-    const color = brandColColors[i];
-    requests.push({
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: i + 1, endColumnIndex: i + 2 },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: color.light,
-            horizontalAlignment: 'CENTER'
-          }
-        },
-        fields: 'userEnteredFormat(backgroundColor,horizontalAlignment)'
-      }
-    });
-  }
-
-  // date 열 가운데 정렬
+  // 최근 7일 합계·일평균 행 (대시보드 7일 합계/÷7 과 동일 윈도우)
   requests.push({
     repeatCell: {
-      range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 1 },
-      cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
-      fields: 'userEnteredFormat.horizontalAlignment'
-    }
-  });
-
-  // total 열 — 회색 + 볼드
-  requests.push({
-    repeatCell: {
-      range: { sheetId, startRowIndex: 1, endRowIndex: totalRows, startColumnIndex: totalCols - 1, endColumnIndex: totalCols },
+      range: { sheetId, startRowIndex: 1, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: totalCols },
       cell: {
         userEnteredFormat: {
-          backgroundColor: { red: 0.92, green: 0.92, blue: 0.92 },
+          backgroundColor: { red: 1, green: 0.97, blue: 0.88 },
           textFormat: { bold: true },
           horizontalAlignment: 'CENTER'
         }
@@ -482,6 +498,64 @@ async function syncDailyTrend(brandRows) {
       fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
     }
   });
+
+  // 일별 구분 행
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 3, endRowIndex: 4, startColumnIndex: 0, endColumnIndex: totalCols },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 0.94, green: 0.94, blue: 0.94 },
+          textFormat: { bold: true, foregroundColor: { red: 0.35, green: 0.35, blue: 0.35 } },
+          horizontalAlignment: 'LEFT'
+        }
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+    }
+  });
+
+  if (totalRows > dataStartRow) {
+    // 데이터 — 각 브랜드 열 연한 컬러 (일별만)
+    for (let i = 0; i < brands.length; i++) {
+      const color = brandColColors[i];
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: dataStartRow, endRowIndex: totalRows, startColumnIndex: i + 1, endColumnIndex: i + 2 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: color.light,
+              horizontalAlignment: 'CENTER'
+            }
+          },
+          fields: 'userEnteredFormat(backgroundColor,horizontalAlignment)'
+        }
+      });
+    }
+
+    // date 열 가운데 정렬 (일별)
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: dataStartRow, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 1 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+        fields: 'userEnteredFormat.horizontalAlignment'
+      }
+    });
+
+    // total 열 — 회색 + 볼드 (일별)
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: dataStartRow, endRowIndex: totalRows, startColumnIndex: totalCols - 1, endColumnIndex: totalCols },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.92, green: 0.92, blue: 0.92 },
+            textFormat: { bold: true },
+            horizontalAlignment: 'CENTER'
+          }
+        },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+      }
+    });
+  }
 
   // 열 너비
   requests.push(

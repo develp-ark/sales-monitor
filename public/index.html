@@ -408,8 +408,8 @@ function renderTrend(){
   function fmtRange(d1,d2){return fmtDate(d2)+' ~ '+fmtDate(d1);}
 
   var today = D.latestDate || D.dates[D.dates.length-1];
-  var currentMonth1st = (D.latestDate || today).slice(0, 8) + '01';
-  var cutoff = currentMonth1st;
+  var cutoff30 = addD(today, -30);
+  var cutoff = cutoff30;
   var todayDow = dayOfWeek(today);
   var thisWeekSun = addD(today, -todayDow);
   var prev1Sun = addD(thisWeekSun, -7);
@@ -493,8 +493,8 @@ function renderTrend(){
       +'</td></tr>';
   }
 
-  // 당월 날짜를 주 단위로 분할하여 일별 표시
-  var monthDays = (D.dates||[]).filter(function(d){ return d >= currentMonth1st && d <= today; }).sort();
+  // 최근 30일을 주 단위로 분할하여 일별 표시
+  var monthDays = (D.dates||[]).filter(function(d){ return d >= cutoff30 && d <= today; }).sort();
   var monthWeeks = [];
   var tw = [];
   for(var mi=0; mi<monthDays.length; mi++){

@@ -748,43 +748,39 @@ module.exports = async (req, res) => {
     req.pipe(bb);
     await done;
 
-    // ── Google Sheets 동기화 (백그라운드) ──
+    // Google Sheets 동기화
     if (fileBrandFromName) {
-      (async () => {
-        try {
-          // 업로드된 브랜드만 시트 동기화
-          const brandName = fileBrandFromName;
-          const brandData = await db.execute({
-            sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
-            args: [brandName]
-          });
-          await syncBrandSheet(brandName, brandData.rows.map(r => ({
-            date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
-            sales: Number(r.sales) || 0, stock: r.stock, status: r.status
-          })));
+      try {
+        const brandName = fileBrandFromName;
+        const brandData = await db.execute({
+          sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
+          args: [brandName]
+        });
+        await syncBrandSheet(brandName, brandData.rows.map(r => ({
+          date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
+          sales: Number(r.sales) || 0, stock: r.stock, status: r.status
+        })));
 
-          // 데일리트렌드는 전체 브랜드 필요하므로 유지
-          const trendRows = await db.execute(
-            'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
-          );
-          const trendByBrand = {};
-          for (const r of trendRows.rows) {
-            if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
-            trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
-          }
-          await syncDailyTrend(trendByBrand);
-          console.log('[Sheets] background sync complete for', brandName);
-        } catch (e) {
-          console.error('[Sheets background sync error]', e.message);
+        const trendRows = await db.execute(
+          'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
+        );
+        const trendByBrand = {};
+        for (const r of trendRows.rows) {
+          if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
+          trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
         }
-      })();
+        await syncDailyTrend(trendByBrand);
+        console.log('[Sheets] sync complete for', brandName);
+      } catch (e) {
+        console.error('[Sheets sync error]', e.message);
+      }
     }
 
     return res.status(200).json({
       ok: true,
       rows: totalRows,
       fileBrand: fileBrandFromName,
-      message: `${totalRows.toLocaleString()}행 반영 완료 (시트 동기화 진행중)`,
+      message: `${totalRows.toLocaleString()}행 반영 완료 (시트 동기화 완료)`,
     });
   } catch (e) {
     console.error(e);

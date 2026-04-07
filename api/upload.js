@@ -403,10 +403,34 @@ async function syncDailyTrend(brandRows) {
   const sepRow = new Array(header.length).fill('');
   sepRow[0] = '▼ 일별 상세';
 
-  const dataRows = datesDesc.map(d => {
+  // 일별 데이터 + 주간 합계 행 (역순: 최신일 → 과거)
+  const dataRows = [];
+  let weekSums = brands.map(() => 0);
+  let weekTotal = 0;
+  let weekDayCount = 0;
+
+  for (let di = 0; di < datesDesc.length; di++) {
+    const d = datesDesc[di];
     const vals = brands.map(b => maps[b][d] || 0);
-    return [d, ...vals, vals.reduce((a, c) => a + c, 0)];
-  });
+    const rowTotal = vals.reduce((a, c) => a + c, 0);
+    dataRows.push([d, ...vals, rowTotal]);
+
+    vals.forEach((v, i) => { weekSums[i] += v; });
+    weekTotal += rowTotal;
+    weekDayCount++;
+
+    const dow = new Date(d + 'T12:00:00Z').getUTCDay();
+    if (dow === 0 || di === datesDesc.length - 1) {
+      const label = weekDayCount + '일 합계';
+      const avgRow = brands.map((b, i) => Math.round(weekSums[i] / weekDayCount));
+      const avgTotal = Math.round(weekTotal / weekDayCount);
+      dataRows.push([label, ...weekSums, weekTotal]);
+      dataRows.push(['일평균(÷' + weekDayCount + ')', ...avgRow, avgTotal]);
+      weekSums = brands.map(() => 0);
+      weekTotal = 0;
+      weekDayCount = 0;
+    }
+  }
 
   const allTrendRows = [header, sum7Row, avg7Row, sepRow, ...dataRows];
 
@@ -416,7 +440,7 @@ async function syncDailyTrend(brandRows) {
       spreadsheetId: SPREADSHEET_ID, range: title + '!A1',
       valueInputOption: 'RAW', requestBody: { values: allTrendRows }
     });
-    console.log('[Sheets] daily_trend: ' + dataRows.length + ' daily rows + 7일 요약');
+    console.log('[Sheets] daily_trend: ' + dataRows.length + ' rows (일별+주간) + 7일 요약');
   } catch (e) { console.error('[Sheets] trend error:', e.message); return; }
 
   // ── 데일리트렌드 서식 ──
@@ -555,6 +579,28 @@ async function syncDailyTrend(brandRows) {
         fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
       }
     });
+
+    // 주간 합계·일평균 행 — 노란 배경
+    let rowIdx = dataStartRow;
+    for (let di = 0; di < dataRows.length; di++) {
+      const firstCell = String(dataRows[di][0]);
+      if (firstCell.includes('합계') || firstCell.includes('일평균')) {
+        requests.push({
+          repeatCell: {
+            range: { sheetId, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: totalCols },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 1, green: 1, blue: 0.6 },
+                textFormat: { bold: true },
+                horizontalAlignment: 'CENTER'
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+          }
+        });
+      }
+      rowIdx++;
+    }
   }
 
   // 열 너비

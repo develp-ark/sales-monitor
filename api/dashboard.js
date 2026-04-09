@@ -24,7 +24,7 @@ function isOosFlagYes(v) {
   return u === 'Y' || u === 'YES';
 }
 function isInsightListedOos(row) {
-  return isOrderableStatus(row.status) && isOosFlagYes(row.oos_flag);
+  return isOrderableStatus(row.status) && isOosFlagYes(row.oos_flag) && (Number(row.stock) || 0) === 0;
 }
 
 /** 최근일부터 역으로 연속 출고 0 구간의 맨 앞 날짜(ISO) */

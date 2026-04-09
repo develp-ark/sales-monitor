@@ -100,36 +100,49 @@ async function syncBrandSheet(brandName, rows) {
     existingRows = res.data.values || [];
   } catch (e) {
     console.log('[SHEETS] No existing data, starting fresh');
-    // 시트가 존재하는데 읽기 실패한 경우 → 아카이브 보호를 위해 중단
     if (existing) {
-      console.error('[SHEETS] ⚠️ 기존 시트 읽기 실패 - 아카이브 보호를 위해 동기화 중단:', e.message);
+      console.error('[SHEETS] 기존 시트 읽기 실패:', e.message);
       return;
     }
   }
 
-  // 3) 기존 데이터를 SKU Map으로 변환
+  // 3) 기존 데이터를 SKU Map으로 변환 + 제외 목록 보존
   const skuMap = {};
+  const excludeMap = {};
   let existingDates = [];
-  const fixedCols = 4;
+  const fixedCols = 5;
 
   if (existingRows.length >= 2) {
     const header = existingRows[0];
-    existingDates = header.slice(fixedCols).map(h => String(h).trim());
-    const h2 = String(header[2] || '').trim();
-    const h3 = String(header[3] || '').trim();
-    const stockFirst = h2.includes('재고') || h3.includes('상태');
+    const firstColHeader = String(header[0] || '').trim();
+    const hasExcludeCol = firstColHeader === '제외';
+    const oldFixedCols = hasExcludeCol ? 5 : 4;
+    const skuIdColIdx = hasExcludeCol ? 1 : 0;
+    const skuNameColIdx = hasExcludeCol ? 2 : 1;
+    const stockColIdx = hasExcludeCol ? 3 : 2;
+    const statusColIdx = hasExcludeCol ? 4 : 3;
 
-    const row1First = String(existingRows[1]?.[0] ?? '').trim();
+    existingDates = header.slice(oldFixedCols).map(h => String(h).trim());
+
+    const row1First = String(existingRows[1]?.[skuIdColIdx] ?? '').trim();
     const row1IsSum = row1First === '합계' || row1First.startsWith('=');
     const dataStartIndex = row1IsSum ? 2 : 1;
 
     for (let r = dataStartIndex; r < existingRows.length; r++) {
       const row = existingRows[r];
-      const skuId = String(row[0] || '').trim();
+      const skuId = String(row[skuIdColIdx] || '').trim();
       if (!skuId || skuId === '합계') continue;
-      const skuName = String(row[1] || '').trim();
-      const stockCell = stockFirst ? row[2] : row[3];
-      const statusCell = stockFirst ? row[3] : row[2];
+
+      if (hasExcludeCol) {
+        const excludeVal = String(row[0] || '').trim().toUpperCase();
+        if (excludeVal === 'Y' || excludeVal === 'YES') {
+          excludeMap[skuId] = 'Y';
+        }
+      }
+
+      const skuName = String(row[skuNameColIdx] || '').trim();
+      const stockCell = row[stockColIdx];
+      const statusCell = row[statusColIdx];
 
       if (!skuMap[skuId]) {
         skuMap[skuId] = {
@@ -142,7 +155,7 @@ async function syncBrandSheet(brandName, rows) {
       }
       for (let d = 0; d < existingDates.length; d++) {
         const dateKey = existingDates[d];
-        const val = row[fixedCols + d];
+        const val = row[oldFixedCols + d];
         if (val !== undefined && val !== null && val !== '') {
           skuMap[skuId].dates[dateKey] = Number(val) || 0;
         }
@@ -154,10 +167,12 @@ async function syncBrandSheet(brandName, rows) {
     }
   }
 
-  // 4) 새 데이터 병합
+  // 4) 새 데이터 병합 (제외된 SKU는 건너뜀)
   for (const row of rows) {
     const skuId = String(row.sku_id || '').trim();
     if (!skuId) continue;
+    if (excludeMap[skuId]) continue;
+
     const dateRaw = row.date;
     const dateKey = dateRaw ? dateRaw.slice(5) : null;
     if (!dateKey) continue;
@@ -193,17 +208,21 @@ async function syncBrandSheet(brandName, rows) {
   });
 
   // 6) 헤더 행
-  const headerRow = ['SKU ID', 'SKU명', '재고', '상태', ...allDates];
+  const headerRow = ['제외', 'SKU ID', 'SKU명', '재고', '상태', ...allDates];
 
-  // 7) 합계 행 — 3행부터 데이터 기준 =SUM(col3:col) (시트에서 항상 정확히 합산)
-  const sumRow = ['합계', '', '', ''];
+  // 7) 합계 행 (제외=Y인 행은 합계에서 빠지도록 SUMPRODUCT 사용)
+  const sumRow = ['', '합계', '', '', ''];
   for (let ci = 0; ci < allDates.length; ci++) {
     const col = colToA1(fixedCols + ci);
-    sumRow.push(`=SUM(${col}3:${col})`);
+    const exCol = colToA1(0);
+    sumRow.push(`=SUMPRODUCT((${exCol}3:${exCol}<>"Y")*(${col}3:${col}))`);
   }
 
-  // 8) SKU 행 (한국어순 정렬)
+  // 8) SKU 행 (제외된 상품은 맨 아래로 정렬)
   const skuIds = Object.keys(skuMap).sort((a, b) => {
+    const aExcluded = excludeMap[a] ? 1 : 0;
+    const bExcluded = excludeMap[b] ? 1 : 0;
+    if (aExcluded !== bExcluded) return aExcluded - bExcluded;
     const na = skuMap[a].name || '';
     const nb = skuMap[b].name || '';
     return na.localeCompare(nb, 'ko');
@@ -211,7 +230,7 @@ async function syncBrandSheet(brandName, rows) {
 
   const dataRows = skuIds.map(skuId => {
     const sku = skuMap[skuId];
-    const row = [skuId, sku.name, sku.stock || '', sku.status || ''];
+    const row = [excludeMap[skuId] || '', skuId, sku.name, sku.stock || '', sku.status || ''];
     for (const d of allDates) {
       row.push(sku.dates[d] !== undefined ? sku.dates[d] : 0);
     }
@@ -238,12 +257,10 @@ async function syncBrandSheet(brandName, rows) {
   const totalRows = allRows.length;
   const requests = [];
 
-  // ① 기존 필터 제거 (있으면)
   if (existing) {
     requests.push({ clearBasicFilter: { sheetId } });
   }
 
-  // ② 전체 흰색 초기화
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols },
@@ -257,15 +274,13 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ③ 고정 행/열
   requests.push({
     updateSheetProperties: {
-      properties: { sheetId, gridProperties: { frozenRowCount: 2, frozenColumnCount: 4 } },
+      properties: { sheetId, gridProperties: { frozenRowCount: 2, frozenColumnCount: 5 } },
       fields: 'gridProperties.frozenRowCount,gridProperties.frozenColumnCount'
     }
   });
 
-  // ④ 헤더 행 (브랜드 컬러)
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: totalCols },
@@ -280,7 +295,6 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑤ 합계 행
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: totalCols },
@@ -295,7 +309,6 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑥ 판매 데이터 영역 가운데 정렬
   requests.push({
     repeatCell: {
       range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: fixedCols, endColumnIndex: totalCols },
@@ -304,7 +317,14 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑦ 판매량 > 0인 셀 → 연한 브랜드컬러 (조건부 서식, 요청 1개)
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: 1 },
+      cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+      fields: 'userEnteredFormat.horizontalAlignment'
+    }
+  });
+
   requests.push({
     addConditionalFormatRule: {
       rule: {
@@ -318,7 +338,22 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑧ 필터 — 1행은 헤더 제외, 2행(합계)부터 필터 영역 (필터 UI는 2행)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{ sheetId, startRowIndex: 2, endRowIndex: totalRows, startColumnIndex: 0, endColumnIndex: totalCols }],
+        booleanRule: {
+          condition: { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: '=$A3="Y"' }] },
+          format: {
+            backgroundColor: { red: 0.85, green: 0.85, blue: 0.85 },
+            textFormat: { foregroundColor: { red: 0.6, green: 0.6, blue: 0.6 } }
+          }
+        }
+      },
+      index: 1
+    }
+  });
+
   requests.push({
     setBasicFilter: {
       filter: {
@@ -327,15 +362,14 @@ async function syncBrandSheet(brandName, rows) {
     }
   });
 
-  // ⑨ 열 너비
   requests.push(
-    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 120 }, fields: 'pixelSize' } },
-    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 250 }, fields: 'pixelSize' } },
-    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 4 }, properties: { pixelSize: 80 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 50 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 }, properties: { pixelSize: 120 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 }, properties: { pixelSize: 250 }, fields: 'pixelSize' } },
+    { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: 3, endIndex: 5 }, properties: { pixelSize: 80 }, fields: 'pixelSize' } },
     { updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: fixedCols, endIndex: totalCols }, properties: { pixelSize: 60 }, fields: 'pixelSize' } }
   );
 
-  // 분할 실행 (Sheets API 제한 대응)
   const CHUNK = 500;
   for (let i = 0; i < requests.length; i += CHUNK) {
     await sheets.spreadsheets.batchUpdate({
@@ -344,7 +378,7 @@ async function syncBrandSheet(brandName, rows) {
     });
   }
 
-  console.log(`[SHEETS] ${brandName} synced: ${skuIds.length} SKUs × ${allDates.length} dates, ${requests.length} fmt reqs`);
+  console.log(`[SHEETS] ${brandName} synced: ${skuIds.length} SKUs × ${allDates.length} dates, excluded: ${Object.keys(excludeMap).length}`);
 }
 
 
@@ -724,7 +758,7 @@ function rowFromRecord(rec, fileBrand) {
   const sales = num(rec.sales, 0);
   const stockVal = rec.stock;
   const stock = stockVal === '' || stockVal == null ? null : num(stockVal, 0);
-
+ 
   const status = rec.status != null ? String(rec.status).trim() : '';
   const oosRaw = rec.outOfStock != null ? String(rec.outOfStock).trim().toUpperCase() : '';
   let oos_flag = '';

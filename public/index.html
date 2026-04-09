@@ -658,8 +658,8 @@ function recompute(brand){
   grid.innerHTML=
     mkBox('🏆 판매 TOP '+CTRL.topCount+' ('+CTRL.period+'일)','t-top',topSales,'top',brand)+
     mkBox('🚫 품절 ('+outOfStock.length+'건)','t-out',outOfStock,'out',brand)+
-    mkBox('📈 급상승 (≥+'+CTRL.threshold+'%, ≥'+CTRL.minSales+'개)','t-up',rising,'up',brand)+
-    mkBox('📉 급하락 (≤-'+CTRL.threshold+'%, 이전≥'+CTRL.minSales+'개)','t-down',falling,'down',brand);
+    mkBox('📈 급상승 (최근'+CTRL.period+'일 vs 이전'+CTRL.period+'일, ≥+'+CTRL.threshold+'%, ≥'+CTRL.minSales+'개)','t-up',rising,'up',brand)+
+    mkBox('📉 급하락 (최근'+CTRL.period+'일 vs 이전'+CTRL.period+'일, ≤-'+CTRL.threshold+'%, 이전≥'+CTRL.minSales+'개)','t-down',falling,'down',brand);
   applyFlagFilter(brand);
   updateSummaryPeriod(brand);
 }
@@ -676,7 +676,7 @@ function filterSurge(arr, isUp){
     }
   }
   out.sort(function(a,b){ return isUp ? b.rate-a.rate : a.rate-b.rate; });
-  return out.slice(0,10);
+  return out.slice(0, CTRL.topCount);
 }
 
 function mkBox(title,cls,arr,type,brand){

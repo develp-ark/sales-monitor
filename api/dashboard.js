@@ -55,6 +55,9 @@ const PERIODS = [
   { key: '30', days: 30 },
 ];
 
+/** 인사이트 배열 상한 — 프론트 CTRL.topCount(슬라이더 최대 50)가 실제로 반영되도록 여유 포함 */
+const INSIGHT_LIST_CAP = 100;
+
 // 메모리 캐시
 let _cache = null;
 let _cacheTime = 0;
@@ -239,13 +242,13 @@ module.exports = async (req, res) => {
       }
 
       for (const b of allBrands) {
-        const tops = (topByBrand[b]||[]).sort((a,c) => c.sales - a.sales).slice(0, 8);
+        const tops = (topByBrand[b]||[]).sort((a,c) => c.sales - a.sales).slice(0, INSIGHT_LIST_CAP);
         const surges = (surgeByBrand[b]||[]).filter(x => x.prev > 0 || x.cur > 0);
         brandInsights[b][key] = {
           topSales: tops,
           oos: oosLatestByBrand[b] ?? [],
-          surgeUp: [...surges].sort((a,c) => c.delta - a.delta).slice(0, 8),
-          surgeDown: [...surges].sort((a,c) => a.delta - c.delta).slice(0, 8),
+          surgeUp: [...surges].sort((a,c) => c.delta - a.delta).slice(0, INSIGHT_LIST_CAP),
+          surgeDown: [...surges].sort((a,c) => a.delta - c.delta).slice(0, INSIGHT_LIST_CAP),
         };
       }
     }

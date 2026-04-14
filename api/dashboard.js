@@ -15,7 +15,6 @@ function dateRangeInclusive(start, end) {
   return out;
 }
 
-/** 발주가능상태가 "발주가능"이고 품절여부(Y/YES)인 SKU만 인사이트 품절·카운트에 포함 */
 function isOrderableStatus(status) {
   return String(status ?? '').trim() === '발주가능';
 }
@@ -27,7 +26,6 @@ function isInsightListedOos(row) {
   return isOrderableStatus(row.status) && isOosFlagYes(row.oos_flag) && (Number(row.stock) || 0) === 0;
 }
 
-/** 최근일부터 역으로 연속 출고 0 구간의 맨 앞 날짜(ISO) */
 function findOosSalesStartIso(datesAsc, dateToSales) {
   const n = datesAsc.length;
   if (!n) return null;
@@ -55,18 +53,22 @@ const PERIODS = [
   { key: '30', days: 30 },
 ];
 
-/** 인사이트 배열 상한 — 프론트 CTRL.topCount(슬라이더 최대 50)가 실제로 반영되도록 여유 포함 */
 const INSIGHT_LIST_CAP = 100;
 
-// 메모리 캐시
 let _cache = null;
 let _cacheTime = 0;
-const CACHE_TTL = 10 * 60 * 1000; // 10분
+const CACHE_TTL = 10 * 60 * 1000;
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  const _url = new URL(req.url, `http://${req.headers.host}`);
+  if (_url.searchParams.has('purge')) {
+    _cache = null;
+    _cacheTime = 0;
   }
 
   if (_cache && (Date.now() - _cacheTime) < CACHE_TTL) {
@@ -91,7 +93,6 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: `Invalid date: "${rawLatest}"` });
     }
 
-        // 당월 + 이전 2개월
     const startMonth = new Date(`${latestDate}T12:00:00.000Z`);
     startMonth.setUTCMonth(startMonth.getUTCMonth() - 2);
     startMonth.setUTCDate(1);
@@ -99,7 +100,6 @@ module.exports = async (req, res) => {
 
     const dates = dateRangeInclusive(start365, latestDate);
 
-    // ── 핵심 쿼리 (병렬) ──
     const [todayAgg, sum7Agg, skuLatest, dailyTrendRows] = await Promise.all([
       db.execute({ sql: 'SELECT brand, SUM(sales) AS s FROM sales WHERE date = ? GROUP BY brand', args: [latestDate] }),
       db.execute({ sql: 'SELECT brand, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand', args: [addDays(latestDate, -6), latestDate] }),
@@ -107,7 +107,6 @@ module.exports = async (req, res) => {
       db.execute({ sql: 'SELECT brand, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, date', args: [start365, latestDate] }),
     ]);
 
-    // ── sku_manage ──
     let flagsRows = { rows: [] };
     let watchList = { rows: [] };
     let skuManageMap = {};
@@ -124,7 +123,6 @@ module.exports = async (req, res) => {
       console.log('sku_manage:', e.message);
     }
 
-    // ── brands 집계 ──
     const todayMap = Object.fromEntries(todayAgg.rows.map(r => [r.brand, Number(r.s)||0]));
     const sum7Map = Object.fromEntries(sum7Agg.rows.map(r => [r.brand, Number(r.s)||0]));
     const skuCountByBrand = {}, stockSumByBrand = {}, oosByBrand = {};
@@ -149,20 +147,17 @@ module.exports = async (req, res) => {
       };
     }
 
-    // ── dailyTrend ──
     const dailyTrend = {};
     for (const row of dailyTrendRows.rows) {
       if (!dailyTrend[row.brand]) dailyTrend[row.brand] = {};
       dailyTrend[row.brand][row.date] = Number(row.s)||0;
     }
 
-    // ── flags ──
     const flags = {};
     for (const row of flagsRows.rows) {
       flags[String(row.sku_id)] = { sku_name: row.sku_name, brand: row.brand, flag: row.flag ?? '', memo: row.memo ?? '' };
     }
 
-    // ── insights ──
     const watchIds = watchList.rows.map(r => String(r.sku_id));
     let watchDailyMap = {};
     if (watchIds.length) {
@@ -185,7 +180,6 @@ module.exports = async (req, res) => {
       return { sku_id: id, sku_name: r.sku_name ?? '', brand: r.brand ?? '', flag: r.flag ?? '', memo: r.memo ?? '', dailySales, sum90: dailySales.reduce((a,c)=>a+c,0) };
     });
 
-    // ── brandInsights: 단일 쿼리로 처리 (12개 → 1개) ──
     const allSkuDaily = await db.execute({
       sql: 'SELECT brand, sku_id, MAX(sku_name) AS sku_name, date, SUM(sales) AS s FROM sales WHERE date >= ? AND date <= ? GROUP BY brand, sku_id, date',
       args: [start365, latestDate],
@@ -260,7 +254,6 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ── 시트 gid (타임아웃 방지: 5초 제한) ──
     let sheetGids = {};
     try {
       let gkey = process.env.GOOGLE_PRIVATE_KEY || '';

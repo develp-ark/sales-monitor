@@ -213,7 +213,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;cur
   <!-- Upload buttons -->
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <button class="btn btn-blue" onclick="document.getElementById('anyFile').click()">파일 업로드</button>
-    <button class="btn" onclick="location.reload()"
+    <button class="btn" onclick="loadAll(true)"
       style="background:#fff;color:#6B7684;border:1px solid #E5E8EB;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer">
       ↻ 새로고침
     </button>
@@ -312,10 +312,10 @@ function mainTab(id){
   if(id==='skuManage') renderSkuManage();
 }
 
-async function loadAll(){
+async function loadAll(purge){
   setLoading(true);
   try {
-    var r = await fetch('/api/dashboard');
+    var r = await fetch('/api/dashboard' + (purge ? '?purge=1' : ''));
     var d = await r.json();
     if(!r.ok) throw new Error(d.error || '대시보드 로드 실패');
     D = d || {};
@@ -993,7 +993,10 @@ async function handleFiles(files){
   if(totalRows&&totalImported) msg+=', ';
   if(totalImported) msg+=totalImported.toLocaleString('ko-KR')+'개 SKU 등록';
   if(st) st.textContent=msg;
-  setTimeout(function(){location.reload();},2000);
+  setTimeout(function(){
+    loadAll(true);
+    if(st) setTimeout(function(){ st.textContent=''; }, 3000);
+  }, 1000);
 }
 
 function readFileText(file){

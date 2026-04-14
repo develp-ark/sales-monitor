@@ -768,7 +768,59 @@ function rowFromRecord(rec, fileBrand) {
   return { date, brand, sku_id, sku_name, sales, stock, status, oos_flag, revenue: 0 };
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let d = '';
+    req.on('data', (c) => { d += c; });
+    req.on('end', () => resolve(d));
+    req.on('error', reject);
+  });
+}
+
 module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method === 'POST' && req.query && req.query.syncOnly === '1') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { brand, type } = body;
+      const db = getDb();
+
+      if (type === 'brand' && brand) {
+        const brandData = await db.execute({
+          sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
+          args: [brand],
+        });
+        await syncBrandSheet(brand, brandData.rows.map((r) => ({
+          date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
+          sales: Number(r.sales) || 0, stock: r.stock, status: r.status,
+        })));
+        return res.status(200).json({ ok: true, message: `${brand} 시트 동기화 완료` });
+      }
+
+      if (type === 'trend') {
+        const trendRows = await db.execute(
+          'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date',
+        );
+        const trendByBrand = {};
+        for (const r of trendRows.rows) {
+          if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
+          trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
+        }
+        await syncDailyTrend(trendByBrand);
+        return res.status(200).json({ ok: true, message: '트렌드 동기화 완료' });
+      }
+
+      return res.status(400).json({ error: 'type required (brand or trend)' });
+    } catch (e) {
+      console.error('[syncOnly error]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -828,39 +880,12 @@ module.exports = async (req, res) => {
     req.pipe(bb);
     await done;
 
-    // Google Sheets 동기화
-    if (fileBrandFromName) {
-      try {
-        const brandName = fileBrandFromName;
-        const brandData = await db.execute({
-          sql: 'SELECT date, sku_id, sku_name, sales, stock, status FROM sales WHERE brand = ? ORDER BY date DESC, sku_id',
-          args: [brandName]
-        });
-        await syncBrandSheet(brandName, brandData.rows.map(r => ({
-          date: r.date, sku_id: r.sku_id, sku_name: r.sku_name,
-          sales: Number(r.sales) || 0, stock: r.stock, status: r.status
-        })));
-
-        const trendRows = await db.execute(
-          'SELECT brand, date, SUM(sales) AS s FROM sales GROUP BY brand, date ORDER BY date'
-        );
-        const trendByBrand = {};
-        for (const r of trendRows.rows) {
-          if (!trendByBrand[r.brand]) trendByBrand[r.brand] = [];
-          trendByBrand[r.brand].push({ date: r.date, totalSales: Number(r.s) || 0 });
-        }
-        await syncDailyTrend(trendByBrand);
-        console.log('[Sheets] sync complete for', brandName);
-      } catch (e) {
-        console.error('[Sheets sync error]', e.message);
-      }
-    }
-
     return res.status(200).json({
       ok: true,
       rows: totalRows,
       fileBrand: fileBrandFromName,
-      message: `${totalRows.toLocaleString()}행 반영 완료 (시트 동기화 완료)`,
+      needSync: true,
+      message: `${totalRows.toLocaleString()}행 DB 반영 완료`,
     });
   } catch (e) {
     console.error(e);

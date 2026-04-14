@@ -899,6 +899,7 @@ async function handleFiles(files){
   var totalRows=0;
   var totalImported=0;
   var step=0;
+  var syncBrands={};
 
   for(var i=0;i<salesFiles.length;i++){
     var f=salesFiles[i];
@@ -919,6 +920,7 @@ async function handleFiles(files){
           var r=await fetch(url,{method:'POST',body:fd});
           var d=await r.json();
           totalRows+=(d.rows||0);
+          if(d.fileBrand) syncBrands[d.fileBrand]=true;
         }catch(e){
           if(st) st.textContent='오류: '+f.name+' 청크'+(c+1)+' - '+e.message;
           return;
@@ -935,6 +937,7 @@ async function handleFiles(files){
         var r=await fetch(url,{method:'POST',body:fd});
         var d=await r.json();
         totalRows+=(d.rows||0);
+        if(d.fileBrand) syncBrands[d.fileBrand]=true;
       }catch(e){
         if(st) st.textContent='오류: '+f.name+' - '+e.message;
         return;
@@ -957,6 +960,32 @@ async function handleFiles(files){
       if(st) st.textContent='오류: '+f.name+' - '+e.message;
       return;
     }
+  }
+
+  var brandList=Object.keys(syncBrands);
+  for(var bi=0;bi<brandList.length;bi++){
+    var syncBrand=brandList[bi];
+    if(st) st.textContent='DB 저장 완료 → '+syncBrand+' 시트 동기화 중... ('+(bi+1)+'/'+brandList.length+')';
+    try{
+      var syncR1=await fetch('/api/upload?syncOnly=1',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({brand:syncBrand,type:'brand'})
+      });
+      var syncD1=await syncR1.json();
+    }catch(e){ console.error('brand sync error',e); }
+  }
+
+  if(brandList.length>0){
+    if(st) st.textContent='트렌드 동기화 중...';
+    try{
+      var syncR2=await fetch('/api/upload?syncOnly=1',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({type:'trend'})
+      });
+      var syncD2=await syncR2.json();
+    }catch(e){ console.error('trend sync error',e); }
   }
 
   var msg='완료: ';

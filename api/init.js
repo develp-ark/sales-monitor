@@ -26,6 +26,26 @@ const STATEMENTS = [
   flag TEXT DEFAULT '',
   memo TEXT DEFAULT ''
 )`,
+  `CREATE TABLE IF NOT EXISTS sku_exclude (
+  sku_id TEXT PRIMARY KEY,
+  sku_name TEXT,
+  brand TEXT,
+  excluded_at TEXT DEFAULT (datetime('now'))
+)`,
+  `CREATE TABLE IF NOT EXISTS sku_new_manual (
+  sku_id TEXT PRIMARY KEY,
+  sku_name TEXT,
+  brand TEXT,
+  added_at TEXT DEFAULT (datetime('now'))
+)`,
+  `CREATE TABLE IF NOT EXISTS sales_monthly (
+    brand TEXT NOT NULL,
+    sku_id TEXT NOT NULL,
+    sku_name TEXT,
+    month TEXT NOT NULL,
+    sales INTEGER DEFAULT 0,
+    UNIQUE(brand, sku_id, month)
+  )`,
 ];
 
 module.exports = async (req, res) => {

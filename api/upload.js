@@ -832,6 +832,12 @@ module.exports = async (req, res) => {
 
   try {
     const db = getDb();
+    await db.execute(`CREATE TABLE IF NOT EXISTS sku_exclude (
+      sku_id TEXT PRIMARY KEY,
+      sku_name TEXT,
+      brand TEXT,
+      excluded_at TEXT DEFAULT (datetime('now'))
+    )`);
     const bb = Busboy({ headers: req.headers, defParamCharset: 'utf8' });
 
     const done = new Promise((resolve, reject) => {
@@ -864,11 +870,17 @@ module.exports = async (req, res) => {
           }
 
           const merged = mergeRows(rawRows);
-          totalRows += merged.length;
-          allParsedRows.push(...merged);
 
-          for (let i = 0; i < merged.length; i += BATCH_SIZE) {
-            await flushBatch(db, merged.slice(i, i + BATCH_SIZE));
+          // 제외 SKU 필터링
+          const exRows = await db.execute('SELECT sku_id FROM sku_exclude');
+          const exSet = new Set(exRows.rows.map((r) => String(r.sku_id)));
+          const filtered = merged.filter((r) => !exSet.has(String(r.sku_id)));
+
+          totalRows += filtered.length;
+          allParsedRows.push(...filtered);
+
+          for (let i = 0; i < filtered.length; i += BATCH_SIZE) {
+            await flushBatch(db, filtered.slice(i, i + BATCH_SIZE));
           }
         });
       });

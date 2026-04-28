@@ -434,10 +434,15 @@ async function loadAll(purge){
     D = d || {};
     renderDash();
     renderTrend();
-    renderInsight();
-    if(document.getElementById('pSkuManage').classList.contains('active')){
-      renderSkuManage();
-    }
+    /* 인사이트는 DOM이 큼 — 대시보드·트렌드 먼저 그린 뒤 다음 틱에 그려 첫 화면이 빨리 보이게 함 */
+    requestAnimationFrame(function () {
+      setTimeout(function () {
+        renderInsight();
+        if (document.getElementById('pSkuManage').classList.contains('active')) {
+          renderSkuManage();
+        }
+      }, 0);
+    });
     log('');
   } catch (e) {
     log('❌ 데이터 로드 오류: '+e.message, true);

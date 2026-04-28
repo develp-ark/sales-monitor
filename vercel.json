@@ -1,7 +1,6 @@
 {
   "rewrites": [{ "source": "/", "destination": "/index.html" }],
   "functions": {
-    "api/upload.js": { "maxDuration": 60 },
-    "api/dashboard.js": { "maxDuration": 60 }
+    "api/[...slug].js": { "maxDuration": 60 }
   }
 }

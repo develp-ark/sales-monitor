@@ -410,11 +410,26 @@ function mainTab(id){
   if(id==='skuManage') renderSkuManage();
 }
 
+/** fetch 응답 본문을 JSON으로 파싱; 실패 시 원인 추적 가능한 메시지 */
+function jsonFromResponse(resp, body, label){
+  try {
+    return JSON.parse(body);
+  } catch (err) {
+    var raw = body || '';
+    var prev = raw.slice(0, 140).replace(/\s+/g, ' ');
+    var hint = raw.trim().charAt(0) === '<'
+      ? ' HTML이 반환됐습니다(404·오류 페이지·로그인 차단 등). API 경로와 배포를 확인하세요.'
+      : (!raw.trim() ? ' 빈 응답입니다.' : '');
+    throw new Error((label || 'API') + ': HTTP ' + resp.status + '.' + hint + (prev ? ' 앞부분: ' + prev : ''));
+  }
+}
+
 async function loadAll(purge){
   setLoading(true);
   try {
     var r = await fetch('/api/dashboard' + (purge ? '?purge=1' : ''));
-    var d = await r.json();
+    var body = await r.text();
+    var d = jsonFromResponse(r, body, '/api/dashboard');
     if(!r.ok) throw new Error(d.error || '대시보드 로드 실패');
     D = d || {};
     renderDash();
@@ -1081,7 +1096,8 @@ async function fetchInsight() {
   setInsightLoading(true);
   try {
     var resp = await fetch(url);
-    var data = await resp.json();
+    var body = await resp.text();
+    var data = jsonFromResponse(resp, body, '/api/insight');
     if (!data.ok) {
       console.error('insight error', data.error);
       window._insightData = null;

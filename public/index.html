@@ -814,19 +814,284 @@ function renderInsight(){
 
 function recompute(brand){
   if (window._insightData) { recomputeCustom(brand); return; }
-  var bi=((D.brandInsights||{})[brand]||{})[String(CTRL.period)]||{topSales:[],oos:[],surgeUp:[],surgeDown:[],newItems:[]};
+  var bi=((D.brandInsights||{})[brand]||{})[String(CTRL.period)]||{topSales:[],oos:[],surgeUp:[],surgeDown:[]};
   var topSales=(bi.topSales||[]).slice().sort(function(a,b){return (b.sales||0)-(a.sales||0)}).slice(0,CTRL.topCount);
+  var outOfStock=(bi.oos||[]).slice();
+  outOfStock.sort(function(a,b){
+    var salesDiff=(Number(b.sales)||0)-(Number(a.sales)||0);
+    if(salesDiff!==0) return salesDiff;
+    var ad=String(a.oosStartDate||a.oos_start_iso||'9999-12-31');
+    var bd=String(b.oosStartDate||b.oos_start_iso||'9999-12-31');
+    if(ad<bd) return -1;
+    if(ad>bd) return 1;
+    return 0;
+  });
   var rising=filterSurge(bi.surgeUp||[], true);
   var falling=filterSurge(bi.surgeDown||[], false);
-  var newItems=(bi.newItems||[]).slice().sort(function(a,b){return (b.sales||0)-(a.sales||0)}).slice(0,Math.max(5,CTRL.topCount));
   var grid=document.getElementById('igrid_'+brand);
   if(!grid) return;
+
+  var flagBoxHtml = buildFlagInsight(brand, bi.topSales||[]);
+
   grid.innerHTML=
-    mkNewItemsBox('🆕 신규상품 현황 (등록 3개월 이내)',newItems)+
     mkBox('🏆 판매 TOP '+CTRL.topCount+' ('+CTRL.period+'일)','t-top',topSales,'top',brand)+
+    flagBoxHtml+
     mkBox('📈 급상승 (최근'+CTRL.period+'일 vs 이전'+CTRL.period+'일, ≥+'+CTRL.threshold+'%, ≥'+CTRL.minSales+'개)','t-up',rising,'up',brand)+
+    mkBox('🚫 품절 ('+outOfStock.length+'건)','t-out',outOfStock,'out',brand)+
     mkBox('📉 급하락 (최근'+CTRL.period+'일 vs 이전'+CTRL.period+'일, ≤-'+CTRL.threshold+'%, 이전≥'+CTRL.minSales+'개)','t-down',falling,'down',brand);
+  applyFlagFilter(brand);
   updateSummaryPeriod(brand);
+}
+
+function buildFlagInsight(brand, allSkuSales){
+  var sm = D.skuManageMap || {};
+  var flagged = [];
+  for(var id in sm){
+    var r = sm[id];
+    if(r.brand !== brand || !r.flag) continue;
+    flagged.push(r);
+  }
+  if(!flagged.length) return '';
+
+  var salesMap = {};
+  for(var i=0;i<allSkuSales.length;i++){
+    salesMap[String(allSkuSales[i].sku_id)] = Number(allSkuSales[i].sales)||0;
+  }
+
+  var groups = {};
+  for(var i=0;i<flagged.length;i++){
+    var f = flagged[i].flag;
+    if(!groups[f]) groups[f] = [];
+    var sid = String(flagged[i].sku_id);
+    groups[f].push({
+      sku_id: sid,
+      sku_name: flagged[i].sku_name||sid,
+      flag: f,
+      sales: salesMap[sid]||0,
+      memo: flagged[i].memo||''
+    });
+  }
+
+  var flagKeys = Object.keys(groups).sort(function(a,b){
+    var sa=0, sb=0;
+    groups[a].forEach(function(x){sa+=x.sales});
+    groups[b].forEach(function(x){sb+=x.sales});
+    return sb-sa;
+  });
+
+  flagKeys.forEach(function(f){
+    groups[f].sort(function(a,b){return b.sales-a.sales});
+  });
+
+  var totalCount = flagged.length;
+  var totalSales = 0;
+  flagged.forEach(function(r){ totalSales += salesMap[String(r.sku_id)]||0; });
+
+  var h = '<div class="i-box"><div class="i-title" style="color:#7C5CFC;background:linear-gradient(90deg,#F3F0FF,#fff);border-left:4px solid #7C5CFC">';
+  h += '🏷️ 플래그 상품 현황 ('+totalCount+'개 · '+CTRL.period+'일 '+num(totalSales)+'개 판매)';
+  h += '</div>';
+
+  h += '<div style="max-height:400px;overflow-y:auto">';
+
+  for(var fi=0;fi<flagKeys.length;fi++){
+    var flag = flagKeys[fi];
+    var items = groups[flag];
+    var groupSales = 0;
+    items.forEach(function(x){groupSales+=x.sales});
+
+    var fs = (typeof flagStyle!=='undefined' && flagStyle[flag]) || {bg:'#F2F3F5',color:'#6B7684'};
+    h += '<div style="padding:10px 16px 6px;background:#FAFBFC;border-top:1px solid #F2F4F6;display:flex;align-items:center;justify-content:space-between">';
+    h += '<div style="display:flex;align-items:center;gap:8px">';
+    h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700">'+esc(flag)+'</span>';
+    h += '<span style="font-size:12px;color:#8B95A1">'+items.length+'개 SKU</span>';
+    h += '</div>';
+    h += '<span style="font-size:13px;font-weight:700;color:#7C5CFC">'+num(groupSales)+'개</span>';
+    h += '</div>';
+
+    h += '<ul class="i-list" style="max-height:none">';
+    var showCount = Math.min(items.length, CTRL.topCount);
+    for(var i=0;i<showCount;i++){
+      var s = items[i];
+      var rc = i===0?'g1':i===1?'g2':i===2?'g3':'';
+      var _su = (D.skuUrls&&D.skuUrls[s.sku_id])||'';
+      if(!_su){
+        var _sm2 = sm[s.sku_id];
+        if(_sm2) _su = getSkuUrl(_sm2)||'';
+      }
+      var snmHtml = _su
+        ? '<a href="'+esc(_su)+'" target="_blank" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline;text-underline-offset:2px">'+esc(s.sku_name)+'</a>'
+        : esc(s.sku_name);
+
+      h += '<li data-flag="'+esc(s.flag)+'" style="position:relative">';
+      h += '<span class="rk '+rc+'">'+(i+1)+'</span>';
+      h += '<span class="sn" title="'+esc(s.sku_id)+'" onclick="openFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')">'+snmHtml+'</span>';
+      if(s.memo) h += '<span class="tag" style="background:#F3F0FF;color:#7C5CFC;font-size:10px">'+esc(s.memo)+'</span>';
+      h += '<span class="sv2 blue">'+num(s.sales)+'개</span>';
+      h += '<button onclick="event.stopPropagation();removeFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')" title="플래그 제거" style="'
+        +'background:none;border:none;cursor:pointer;font-size:14px;color:#D1D6DB;padding:2px 4px;margin-left:4px;transition:color .15s;line-height:1'
+        +'" onmouseover="this.style.color=\'#F04452\'" onmouseout="this.style.color=\'#D1D6DB\'">✕</button>';
+      h += '</li>';
+    }
+    if(items.length > showCount){
+      h += '<li style="justify-content:center;color:#8B95A1;font-size:11px;padding:6px">외 '+(items.length-showCount)+'개</li>';
+    }
+    h += '</ul>';
+  }
+
+  h += '</div></div>';
+  return h;
+}
+
+async function removeFlag(skuId, skuName, brand){
+  if(!confirm('['+skuId+'] '+skuName+'\n플래그를 제거하시겠습니까?')) return;
+  try{
+    var r = await fetch('/api/flag',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skuId:skuId,skuName:skuName,flag:'',memo:''})});
+    var j = await r.json();
+    if(!r.ok) throw new Error(j.error||'플래그 제거 실패');
+    log('🏷️ 플래그 제거: ['+skuId+']');
+    loadAll(true);
+  }catch(e){ alert('오류: '+e.message); }
+}
+
+function renderFlagManageTable(){
+  var wrap = document.getElementById('flagManageTableWrap');
+  if(!wrap) return;
+  var sm = D.skuManageMap || {};
+  var brandF = (document.getElementById('fmBrandFilter')||{}).value||'';
+  var flagF = (document.getElementById('fmFlagFilter')||{}).value||'';
+  var search = ((document.getElementById('fmSearch')||{}).value||'').toLowerCase();
+
+  var items = [];
+  for(var id in sm){
+    var r = sm[id];
+    if(!r.flag) continue;
+    if(brandF && r.brand !== brandF) continue;
+    if(flagF && r.flag !== flagF) continue;
+    if(search && (String(r.sku_id)+' '+(r.sku_name||'')).toLowerCase().indexOf(search)===-1) continue;
+    items.push(r);
+  }
+
+  items.sort(function(a,b){
+    if(a.brand!==b.brand) return (a.brand||'').localeCompare(b.brand||'');
+    if(a.flag!==b.flag) return (a.flag||'').localeCompare(b.flag||'');
+    return (a.sku_name||'').localeCompare(b.sku_name||'');
+  });
+
+  if(!items.length){
+    wrap.innerHTML = '<div style="color:#8B95A1;font-size:13px;padding:12px 0;text-align:center">플래그가 지정된 상품이 없습니다.</div>';
+    return;
+  }
+
+  var h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+  h += '<span style="font-size:12px;color:#8B95A1">'+items.length+'개 상품</span>';
+  h += '<div style="display:flex;align-items:center;gap:8px">';
+  h += '<span id="fmSelCount" style="font-size:12px;color:#8B95A1"></span>';
+  h += '<button id="fmBulkRemoveBtn" onclick="fmBulkRemove()" style="display:none;background:#F04452;color:#fff;border:none;border-radius:8px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer">🗑️ 선택 플래그 제거</button>';
+  h += '</div></div>';
+
+  h += '<div style="overflow-x:auto;border:1px solid #F2F4F6;border-radius:8px">';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  h += '<thead><tr style="background:#F8F9FA">';
+  h += '<th style="padding:8px 12px;text-align:center;width:40px"><input type="checkbox" onchange="fmToggleAll(this.checked)" id="fmCheckAll"></th>';
+  h += '<th style="padding:8px 12px;text-align:left;font-weight:600">브랜드</th>';
+  h += '<th style="padding:8px 12px;text-align:center;font-weight:600">플래그</th>';
+  h += '<th style="padding:8px 12px;text-align:left;font-weight:600">SKU ID</th>';
+  h += '<th style="padding:8px 12px;text-align:left;font-weight:600;min-width:200px">상품명</th>';
+  h += '<th style="padding:8px 12px;text-align:left;font-weight:600">메모</th>';
+  h += '<th style="padding:8px 12px;text-align:center;font-weight:600">변경</th>';
+  h += '<th style="padding:8px 12px;text-align:center;font-weight:600">제거</th>';
+  h += '</tr></thead><tbody>';
+
+  for(var i=0;i<items.length;i++){
+    var r = items[i];
+    var bc = brandColor[r.brand]||defBC;
+    var fs = flagStyle[r.flag]||{bg:'#F2F3F5',color:'#6B7684'};
+    var url = getSkuUrl(r);
+
+    h += '<tr style="border-top:1px solid #F2F4F6">';
+    h += '<td style="padding:8px 12px;text-align:center"><input type="checkbox" class="fm-chk" data-sku="'+esc(r.sku_id)+'" data-name="'+esc(r.sku_name||'')+'" data-brand="'+esc(r.brand)+'" onchange="fmUpdateSelection()"></td>';
+    h += '<td style="padding:8px 12px"><span style="color:'+bc.color+';font-weight:600;font-size:12px">'+esc(r.brand)+'</span></td>';
+    h += '<td style="padding:8px 12px;text-align:center"><span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span></td>';
+    h += '<td style="padding:8px 12px;font-variant-numeric:tabular-nums;font-size:12px">'+esc(r.sku_id)+'</td>';
+    h += '<td style="padding:8px 12px">';
+    if(url) h += '<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
+    else h += esc(r.sku_name||'');
+    h += '</td>';
+    h += '<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'-')+'</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
+    h += '<button onclick="openFlag(\''+esc(r.sku_id)+'\',\''+esc(r.sku_name||'')+'\',\''+esc(r.brand)+'\')" style="background:#EBF3FE;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:#3182F6;font-weight:600">변경</button>';
+    h += '</td>';
+    h += '<td style="padding:8px 12px;text-align:center">';
+    h += '<button onclick="removeFlag(\''+esc(r.sku_id)+'\',\''+esc(r.sku_name||'')+'\',\''+esc(r.brand)+'\')" style="background:#FEECEE;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:#F04452;font-weight:600">제거</button>';
+    h += '</td>';
+    h += '</tr>';
+  }
+
+  h += '</tbody></table></div>';
+  wrap.innerHTML = h;
+}
+
+function fmToggleAll(checked){
+  document.querySelectorAll('.fm-chk').forEach(function(cb){ cb.checked = checked; });
+  fmUpdateSelection();
+}
+
+function fmUpdateSelection(){
+  var checked = document.querySelectorAll('.fm-chk:checked');
+  var cnt = checked.length;
+  var total = document.querySelectorAll('.fm-chk').length;
+  var countEl = document.getElementById('fmSelCount');
+  var btn = document.getElementById('fmBulkRemoveBtn');
+  var allCb = document.getElementById('fmCheckAll');
+
+  if(countEl) countEl.textContent = cnt > 0 ? cnt+'개 선택' : '';
+  if(btn) btn.style.display = cnt > 0 ? '' : 'none';
+  if(allCb) allCb.checked = cnt > 0 && cnt === total;
+}
+
+async function fmBulkRemove(){
+  var checked = document.querySelectorAll('.fm-chk:checked');
+  if(!checked.length) return;
+  if(!confirm(checked.length+'개 상품의 플래그를 일괄 제거하시겠습니까?')) return;
+
+  var promises = [];
+  checked.forEach(function(cb){
+    promises.push(
+      fetch('/api/flag',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({skuId:cb.dataset.sku, skuName:cb.dataset.name, flag:'', memo:''})
+      })
+    );
+  });
+
+  try{
+    await Promise.all(promises);
+    log('🏷️ '+checked.length+'개 플래그 일괄 제거 완료');
+    loadAll(true);
+  }catch(e){
+    alert('일부 제거 실패: '+e.message);
+    loadAll(true);
+  }
+}
+
+function applyFlagFilter(brand){
+  var active = window._insightFlagFilter;
+  if(!active) return;
+  var list = document.querySelectorAll('#igrid_'+brand+' li[data-flag]');
+  for(var i=0;i<list.length;i++){
+    var li = list[i];
+    li.style.display = (li.getAttribute('data-flag') === active) ? '' : 'none';
+  }
+}
+
+function openFlag(skuId, skuName, brand){
+  mainTab('skuManage');
+  setTimeout(function(){
+    smActiveBrand = brand || '';
+    smActiveFlag = '';
+    renderSkuManagePanel();
+  }, 30);
 }
 
 function filterSurge(arr, isUp) {
@@ -878,6 +1143,15 @@ function mkBox(title, cls, arr, type, brand) {
       + '<th style="padding:8px 6px;text-align:center;width:70px;border-left:1px solid #E9EDF2;background:#FBFCFE">vs 전월</th>'
       + '<th style="padding:8px 6px;text-align:center;width:70px;border-left:1px solid #E9EDF2;background:#FBFCFE">vs 전년</th>'
       + '</tr>';
+  } else if (type === 'out') {
+    h += '<tr style="background:#F8F9FA;border-bottom:2px solid #E5E8EB">'
+      + '<th style="padding:8px 6px;text-align:center;width:32px">#</th>'
+      + '<th style="padding:8px 6px;text-align:left;width:30%">상품명</th>'
+      + '<th style="padding:8px 6px;text-align:right;width:60px;border-left:1px solid #E9EDF2;background:#FBFCFE">판매량</th>'
+      + '<th style="padding:8px 6px;text-align:right;width:50px;border-left:1px solid #E9EDF2;background:#FBFCFE">재고</th>'
+      + '<th style="padding:8px 6px;text-align:center;width:80px;border-left:1px solid #E9EDF2;background:#FBFCFE">품절 시작</th>'
+      + '<th style="padding:8px 6px;text-align:center;width:60px;border-left:1px solid #E9EDF2;background:#FBFCFE">상태</th>'
+      + '</tr>';
   }
 
   h += '<tbody>';
@@ -911,6 +1185,13 @@ function mkBox(title, cls, arr, type, brand) {
       h += '<td style="padding:8px 6px;text-align:center;border-left:1px solid #EEF2F6;background:#FCFDFE">' + fmtChangeWithDelta(s.vsWeek, s.curAvg, s.lwAvg) + '</td>';
       h += '<td style="padding:8px 6px;text-align:center;border-left:1px solid #EEF2F6;background:#FCFDFE">' + fmtChangeWithDelta(s.vsMonth, s.curAvg, s.lmAvg) + '</td>';
       h += '<td style="padding:8px 6px;text-align:center;border-left:1px solid #EEF2F6;background:#FCFDFE">' + fmtChangeWithDelta(s.vsYear, s.curAvg, s.lyAvg) + '</td>';
+    } else if (type === 'out') {
+      var startIso = String(s.oos_start_iso || s.oosStartDate || '').trim();
+      var startDisp = startIso ? startIso.substring(5).replace(/-/g, '/') : '-';
+      h += '<td style="padding:8px 6px;text-align:right;font-weight:700;color:#333;border-left:1px solid #EEF2F6;background:#FCFDFE">' + num(Number(s.sales || 0)) + '</td>';
+      h += '<td style="padding:8px 6px;text-align:right;color:#666;border-left:1px solid #EEF2F6;background:#FCFDFE">' + num(Number(s.stock != null ? s.stock : 0)) + '</td>';
+      h += '<td style="padding:8px 6px;text-align:center;border-left:1px solid #EEF2F6;background:#FCFDFE" title="' + esc(startIso) + '"><span class="oos-since">' + esc(startDisp) + '</span></td>';
+      h += '<td style="padding:8px 6px;text-align:center;color:#E53E3E;font-weight:600;border-left:1px solid #EEF2F6;background:#FCFDFE">' + esc(s.status || '품절') + '</td>';
     }
 
     h += '</tr>';
@@ -1122,11 +1403,22 @@ async function fetchInsight() {
 }
 
 function recomputeCustom(brand) {
-  var bi = (window._insightData || {})[brand] || { topSales: [], surgeUp: [], surgeDown: [], newItems: [] };
+  var bi = (window._insightData || {})[brand] || { topSales: [], surgeUp: [], surgeDown: [], oos: [], newItems: [] };
   var topSales = (bi.topSales || []).slice(0, CTRL.topCount);
+  var outOfStock = (bi.oos || []).slice();
+  outOfStock.sort(function(a, b) {
+    var salesDiff = (Number(b.sales) || 0) - (Number(a.sales) || 0);
+    if (salesDiff !== 0) return salesDiff;
+    var ad = String(a.oosStartDate || a.oos_start_iso || '9999-12-31');
+    var bd = String(b.oosStartDate || b.oos_start_iso || '9999-12-31');
+    if (ad < bd) return -1;
+    if (ad > bd) return 1;
+    return 0;
+  });
   var rising = filterSurge(bi.surgeUp || [], true);
   var falling = filterSurge(bi.surgeDown || [], false);
   var newItems = (bi.newItems || []).slice(0, Math.max(5, CTRL.topCount));
+  var flagBoxHtml = buildFlagInsight(brand, bi.topSales || []);
 
   var cs = document.getElementById('curStart_' + brand);
   var ce = document.getElementById('curEnd_' + brand);
@@ -1140,8 +1432,11 @@ function recomputeCustom(brand) {
   grid.innerHTML =
     mkNewItemsBox('🆕 신규상품 현황 (등록 3개월 이내)', newItems) +
     mkBox('🏆 판매 TOP ' + CTRL.topCount + ' (' + curLabel + ')', 't-top', topSales, 'top', brand) +
+    flagBoxHtml +
     mkBox('📈 급상승 (' + curLabel + ' vs ' + prevLabel + ', ≥+' + CTRL.threshold + '%, ≥' + CTRL.minSales + '개)', 't-up', rising, 'up', brand) +
+    mkBox('🚫 품절 (' + outOfStock.length + '건)', 't-out', outOfStock, 'out', brand) +
     mkBox('📉 급하락 (' + curLabel + ' vs ' + prevLabel + ', ≤-' + CTRL.threshold + '%, 이전≥' + CTRL.minSales + '개)', 't-down', falling, 'down', brand);
+  applyFlagFilter(brand);
   updateSummaryPeriod(brand);
 }
 
@@ -1754,13 +2049,45 @@ function renderSkuManagePanel() {
   listNm.forEach(function(r) { if (r.brand) brandSetNm[r.brand] = true; });
   var brandsNm = Object.keys(brandSetNm).sort();
 
+  var smFm = D.skuManageMap || {};
+  var brandSetFm = {};
+  var flagSetFm = {};
+  for (var smId in smFm) {
+    var smRow = smFm[smId];
+    if (!smRow.flag) continue;
+    if (smRow.brand) brandSetFm[smRow.brand] = true;
+    if (smRow.flag) flagSetFm[smRow.flag] = true;
+  }
+  var brandsFm = Object.keys(brandSetFm).sort();
+  var flagsFm = Object.keys(flagSetFm).sort();
+
   var h = '';
   h += '<div style="margin-bottom:20px;padding:14px 16px;background:#F8FAFC;border:1px solid #E5E8EB;border-radius:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">';
   h += '<div style="font-size:13px;color:#4B5563;line-height:1.5"><strong style="color:#111">통합 SKU 관리 CSV</strong> — 열: 브랜드, SKU ID, SKU 명, 비고 · 비고에 <strong>신규</strong> 또는 <strong>제외</strong> · 메인 업로드에 넣어도 동일하게 처리됩니다.</div>';
   h += '<button type="button" onclick="downloadSkuManageTemplate()" style="flex-shrink:0;background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer">📥 양식 다운로드 (.csv)</button>';
   h += '</div>';
 
+  h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">';
+  h += '<div style="font-size:14px;font-weight:700">🏷️ 플래그 관리</div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  h += '<select id="fmBrandFilter" onchange="renderFlagManageTable()" style="padding:6px 10px;border:1px solid #E5E8EB;border-radius:8px;font-size:12px"><option value="">전체 브랜드</option>';
+  for (var bfi = 0; bfi < brandsFm.length; bfi++) {
+    h += '<option value="' + esc(brandsFm[bfi]) + '">' + esc(brandsFm[bfi]) + '</option>';
+  }
+  h += '</select>';
+  h += '<select id="fmFlagFilter" onchange="renderFlagManageTable()" style="padding:6px 10px;border:1px solid #E5E8EB;border-radius:8px;font-size:12px"><option value="">전체 플래그</option>';
+  for (var ffi = 0; ffi < flagsFm.length; ffi++) {
+    h += '<option value="' + esc(flagsFm[ffi]) + '">' + esc(flagsFm[ffi]) + '</option>';
+  }
+  h += '</select>';
+  h += '<input id="fmSearch" oninput="renderFlagManageTable()" placeholder="SKU ID / 상품명 검색" style="padding:6px 10px;border:1px solid #E5E8EB;border-radius:8px;font-size:12px;min-width:180px">';
+  h += '</div></div>';
+  h += '<div id="flagManageTableWrap"></div>';
+  h += '</div>';
+
   h += '<div style="margin-bottom:12px">';
+
   h += '<p style="margin:0 0 12px;font-size:12px;color:#8B95A1;line-height:1.5">브랜드 인사이트 <strong>신규상품 현황</strong>에 넣을 SKU입니다. 메인 업로드 또는 아래 CSV에서 <strong>브랜드 · SKU ID · SKU 명 · 비고</strong> 양식으로 비고에 <strong>신규</strong>를 넣어도 됩니다.</p>';
   h += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
   h += '<h3 style="margin:0;font-size:16px;color:#5B21B6">🆕 신규상품 지정 SKU</h3>';
@@ -1802,6 +2129,7 @@ function renderSkuManagePanel() {
   h += '</div>';
 
   wrap.innerHTML = h;
+  renderFlagManageTable();
   renderNewManualTable();
   renderExcludeTable();
 }

@@ -1102,7 +1102,7 @@ function renderFlagManageTable(){
     h += '<td style="padding:8px 12px;text-align:center"><span style="background:'+fs.bg+';color:'+fs.color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">'+esc(r.flag)+'</span></td>';
     h += '<td style="padding:8px 12px;font-variant-numeric:tabular-nums;font-size:12px">'+esc(r.sku_id)+'</td>';
     h += '<td style="padding:8px 12px">';
-    if(url) h += '<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a>';
+    if(url) h += '<a href="'+esc(url)+'" target="_blank" style="color:#191F28;text-decoration:none;border-bottom:1px dashed #ccc">'+esc(r.sku_name||'')+'</a> <span style="font-size:10px;color:#3182F6">↗</span>';
     else h += esc(r.sku_name||'');
     h += '</td>';
     h += '<td style="padding:8px 12px;color:#6B7684;font-size:12px">'+esc(r.memo||'-')+'</td>';

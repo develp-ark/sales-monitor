@@ -1605,12 +1605,16 @@ function detectCsvType(text){
     if(tryParseMonthlyHeader(cols[i])) return 'monthly';
   }
 
+  // 플래그/flag 컬럼이 있으면 sku-manage로 우선 분류
+  if(firstLine.indexOf('플래그')!==-1 || firstLine.indexOf('flag')!==-1){
+    return 'sku-manage';
+  }
+
   if(detectSkuRemarksUnified(text)){
     return 'sku-remarks';
   }
 
-  /* 예전 «신규지정» 전용 CSV — 제외 업로드로 오인되지 않게 처리만 하고 등록하지 않음 */
-  if(firstLine.indexOf('신규지정')!==-1 || firstLine.indexOf('new_product_manual')!==-1){
+  if(firstLine.indexOf('신규')!==-1 || firstLine.indexOf('new_product_manual')!==-1){
     return 'deprecated-new-csv';
   }
 
@@ -1619,7 +1623,7 @@ function detectCsvType(text){
   }
 
   if(firstLine.indexOf('pid')!==-1 || firstLine.indexOf('iid')!==-1 || firstLine.indexOf('vid')!==-1
-    || firstLine.indexOf('플래그')!==-1 || firstLine.indexOf('flag')!==-1){
+    || firstLine.indexOf('비고')!==-1 || firstLine.indexOf('flag')!==-1){
     return 'sku-manage';
   }
   return 'sales';

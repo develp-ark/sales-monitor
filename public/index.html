@@ -831,7 +831,7 @@ function recompute(brand){
   var grid=document.getElementById('igrid_'+brand);
   if(!grid) return;
 
-  var flagBoxHtml = buildFlagInsight(brand, bi.topSales||[]);
+  var flagBoxHtml = buildFlagInsight(brand, bi.topSales||[], bi);
 
   grid.innerHTML=
     mkBox('🏆 판매 TOP '+CTRL.topCount+' ('+CTRL.period+'일)','t-top',topSales,'top',brand)+
@@ -843,7 +843,7 @@ function recompute(brand){
   updateSummaryPeriod(brand);
 }
 
-function buildFlagInsight(brand, allSkuSales){
+function buildFlagInsight(brand, allSkuSales, bi){
   var sm = D.skuManageMap || {};
   var flagged = [];
   for(var id in sm){
@@ -855,19 +855,42 @@ function buildFlagInsight(brand, allSkuSales){
 
   var salesMap = {};
   for(var i=0;i<allSkuSales.length;i++){
-    salesMap[String(allSkuSales[i].sku_id)] = Number(allSkuSales[i].sales)||0;
+    salesMap[String(allSkuSales[i].sku_id||allSkuSales[i].id)] = Number(allSkuSales[i].sales||0);
   }
+
+  var prevMap = {};
+  var rateMap = {};
+  var allLists = [].concat(bi.topSales||[], bi.surgeUp||[], bi.surgeDown||[], bi.oos||[]);
+  for(var i=0;i<allLists.length;i++){
+    var x = allLists[i];
+    var sid = String(x.sku_id||x.id||'');
+    if(sid && x.prev != null) prevMap[sid] = Number(x.prev)||0;
+    if(sid && x.curAvg != null && !prevMap[sid]) {
+    }
+  }
+
+  var csEl = document.getElementById('curStart_'+brand);
+  var ceEl = document.getElementById('curEnd_'+brand);
+  var psEl = document.getElementById('prevStart_'+brand);
+  var peEl = document.getElementById('prevEnd_'+brand);
+  var curLabel = csEl && ceEl ? csEl.value.substring(5)+' ~ '+ceEl.value.substring(5) : '';
+  var prevLabel = psEl && peEl ? psEl.value.substring(5)+' ~ '+peEl.value.substring(5) : '';
 
   var groups = {};
   for(var i=0;i<flagged.length;i++){
     var f = flagged[i].flag;
     if(!groups[f]) groups[f] = [];
     var sid = String(flagged[i].sku_id);
+    var cur = salesMap[sid]||0;
+    var prev = prevMap[sid]!=null ? prevMap[sid] : null;
+    var rate = (prev != null && prev > 0) ? Math.round((cur - prev) / prev * 100) : (cur > 0 && prev === 0 ? 999 : null);
     groups[f].push({
       sku_id: sid,
       sku_name: flagged[i].sku_name||sid,
       flag: f,
-      sales: salesMap[sid]||0,
+      sales: cur,
+      prev: prev,
+      rate: rate,
       memo: flagged[i].memo||''
     });
   }
@@ -878,69 +901,116 @@ function buildFlagInsight(brand, allSkuSales){
     groups[b].forEach(function(x){sb+=x.sales});
     return sb-sa;
   });
-
   flagKeys.forEach(function(f){
     groups[f].sort(function(a,b){return b.sales-a.sales});
   });
 
   var totalCount = flagged.length;
-  var totalSales = 0;
-  flagged.forEach(function(r){ totalSales += salesMap[String(r.sku_id)]||0; });
+  var totalCur = 0, totalPrev = 0, hasPrev = false;
+  flagged.forEach(function(r){
+    var sid = String(r.sku_id);
+    totalCur += salesMap[sid]||0;
+    if(prevMap[sid] != null){ totalPrev += prevMap[sid]; hasPrev = true; }
+  });
+  var totalRate = hasPrev && totalPrev > 0 ? Math.round((totalCur - totalPrev) / totalPrev * 100) : null;
 
-  var h = '<div class="i-box"><div class="i-title" style="color:#7C5CFC;background:linear-gradient(90deg,#F3F0FF,#fff);border-left:4px solid #7C5CFC">';
-  h += '🏷️ 플래그 상품 현황 ('+totalCount+'개 · '+CTRL.period+'일 '+num(totalSales)+'개 판매)';
+  var h = '<div class="i-box"><div class="i-title" style="color:#7C5CFC;background:linear-gradient(90deg,#F3F0FF,#fff);border-left:4px solid #7C5CFC;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">';
+  h += '<span>🏷️ 플래그 상품 현황 ('+totalCount+'개 · '+num(totalCur)+'개 판매)</span>';
+  if(hasPrev && totalRate != null){
+    var rc = totalRate > 0 ? '#10B981' : (totalRate < 0 ? '#F04452' : '#8B95A1');
+    var rs = totalRate > 0 ? '+'+totalRate+'%' : totalRate+'%';
+    h += '<span style="font-size:12px;font-weight:600;color:'+rc+'">vs 비교 '+rs+' ('+num(totalPrev)+'→'+num(totalCur)+')</span>';
+  }
   h += '</div>';
 
-  h += '<div style="max-height:400px;overflow-y:auto">';
+  if(curLabel || prevLabel){
+    h += '<div style="display:flex;gap:16px;padding:8px 16px;background:#FAFBFC;border-bottom:1px solid #F2F4F6;font-size:11px;color:#8B95A1">';
+    if(curLabel) h += '<span>📊 집계: <strong style="color:#3182F6">'+curLabel+'</strong></span>';
+    if(prevLabel) h += '<span>📈 비교: <strong style="color:#F04452">'+prevLabel+'</strong></span>';
+    h += '</div>';
+  }
+
+  h += '<div style="max-height:500px;overflow-y:auto">';
+
+  h += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  h += '<thead><tr style="background:#F8F9FA;border-bottom:2px solid #E5E8EB">';
+  h += '<th style="padding:8px 6px;text-align:center;width:32px">#</th>';
+  h += '<th style="padding:8px 6px;text-align:left;width:40%">상품명</th>';
+  h += '<th style="padding:8px 6px;text-align:right;width:70px;border-left:1px solid #E9EDF2;background:#FBFCFE">집계기간</th>';
+  if(hasPrev){
+    h += '<th style="padding:8px 6px;text-align:right;width:70px;border-left:1px solid #E9EDF2;background:#FBFCFE">비교기간</th>';
+    h += '<th style="padding:8px 6px;text-align:center;width:80px;border-left:1px solid #E9EDF2;background:#FBFCFE">변동률</th>';
+  }
+  h += '<th style="padding:8px 6px;text-align:center;width:30px"></th>';
+  h += '</tr></thead>';
 
   for(var fi=0;fi<flagKeys.length;fi++){
     var flag = flagKeys[fi];
     var items = groups[flag];
-    var groupSales = 0;
-    items.forEach(function(x){groupSales+=x.sales});
+    var groupCur = 0, groupPrev = 0, groupHasPrev = false;
+    items.forEach(function(x){ groupCur+=x.sales; if(x.prev!=null){groupPrev+=x.prev; groupHasPrev=true;} });
+    var groupRate = groupHasPrev && groupPrev > 0 ? Math.round((groupCur - groupPrev) / groupPrev * 100) : null;
 
     var fs = (typeof flagStyle!=='undefined' && flagStyle[flag]) || {bg:'#F2F3F5',color:'#6B7684'};
-    h += '<div style="padding:10px 16px 6px;background:#FAFBFC;border-top:1px solid #F2F4F6;display:flex;align-items:center;justify-content:space-between">';
-    h += '<div style="display:flex;align-items:center;gap:8px">';
-    h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700">'+esc(flag)+'</span>';
-    h += '<span style="font-size:12px;color:#8B95A1">'+items.length+'개 SKU</span>';
-    h += '</div>';
-    h += '<span style="font-size:13px;font-weight:700;color:#7C5CFC">'+num(groupSales)+'개</span>';
-    h += '</div>';
 
-    h += '<ul class="i-list" style="max-height:none">';
+    h += '<tr style="background:#FAFBFC;border-top:2px solid #E5E8EB">';
+    h += '<td colspan="2" style="padding:10px 12px">';
+    h += '<span style="background:'+fs.bg+';color:'+fs.color+';padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700">'+esc(flag)+'</span>';
+    h += ' <span style="font-size:12px;color:#8B95A1;margin-left:6px">'+items.length+'개 SKU</span></td>';
+    h += '<td style="padding:10px 8px;text-align:right;font-weight:700;color:#7C5CFC;border-left:1px solid #E9EDF2">'+num(groupCur)+'</td>';
+    if(hasPrev){
+      h += '<td style="padding:10px 8px;text-align:right;color:#8B95A1;border-left:1px solid #E9EDF2">'+num(groupPrev)+'</td>';
+      h += '<td style="padding:10px 8px;text-align:center;border-left:1px solid #E9EDF2">'+fmtFlagRate(groupRate)+'</td>';
+    }
+    h += '<td></td></tr>';
+
     var showCount = Math.min(items.length, CTRL.topCount);
     for(var i=0;i<showCount;i++){
       var s = items[i];
       var rc = i===0?'g1':i===1?'g2':i===2?'g3':'';
       var _su = (D.skuUrls&&D.skuUrls[s.sku_id])||'';
-      if(!_su){
-        var _sm2 = sm[s.sku_id];
-        if(_sm2) _su = getSkuUrl(_sm2)||'';
-      }
+      if(!_su){ var _sm2 = sm[s.sku_id]; if(_sm2) _su = getSkuUrl(_sm2)||''; }
       var snmHtml = _su
         ? '<a href="'+esc(_su)+'" target="_blank" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline;text-underline-offset:2px">'+esc(s.sku_name)+'</a>'
         : esc(s.sku_name);
 
-      h += '<li data-flag="'+esc(s.flag)+'" style="position:relative">';
-      h += '<span class="rk '+rc+'">'+(i+1)+'</span>';
-      h += '<span class="sn" title="'+esc(s.sku_id)+'" onclick="openFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')">'+snmHtml+'</span>';
-      if(s.memo) h += '<span class="tag" style="background:#F3F0FF;color:#7C5CFC;font-size:10px">'+esc(s.memo)+'</span>';
-      h += '<span class="sv2 blue">'+num(s.sales)+'개</span>';
-      h += '<button onclick="event.stopPropagation();removeFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')" title="플래그 제거" style="'
-        +'background:none;border:none;cursor:pointer;font-size:14px;color:#D1D6DB;padding:2px 4px;margin-left:4px;transition:color .15s;line-height:1'
+      var bgColor = i % 2 === 0 ? '#fff' : '#FAFBFC';
+      h += '<tr style="background:'+bgColor+';border-bottom:1px solid #F2F4F6">';
+      h += '<td style="padding:7px 6px;text-align:center"><span class="rk '+rc+'">'+(i+1)+'</span></td>';
+      h += '<td style="padding:7px 6px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="openFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')">';
+      h += snmHtml;
+      if(s.memo) h += ' <span class="tag" style="background:#F3F0FF;color:#7C5CFC;font-size:10px">'+esc(s.memo)+'</span>';
+      h += '</td>';
+      h += '<td style="padding:7px 6px;text-align:right;font-weight:700;color:#333;border-left:1px solid #EEF2F6;background:#FCFDFE">'+num(s.sales)+'</td>';
+      if(hasPrev){
+        h += '<td style="padding:7px 6px;text-align:right;color:#666;border-left:1px solid #EEF2F6;background:#FCFDFE">'+(s.prev!=null?num(s.prev):'-')+'</td>';
+        h += '<td style="padding:7px 6px;text-align:center;border-left:1px solid #EEF2F6;background:#FCFDFE">'+fmtFlagRate(s.rate)+'</td>';
+      }
+      h += '<td style="padding:4px 2px;text-align:center">';
+      h += '<button onclick="event.stopPropagation();removeFlag(\''+esc(s.sku_id)+'\',\''+esc(s.sku_name)+'\',\''+esc(brand)+'\')" title="삭제" style="'
+        +'background:none;border:none;cursor:pointer;font-size:13px;color:#D1D6DB;padding:2px;line-height:1'
         +'" onmouseover="this.style.color=\'#F04452\'" onmouseout="this.style.color=\'#D1D6DB\'">✕</button>';
-      h += '</li>';
+      h += '</td></tr>';
     }
     if(items.length > showCount){
-      h += '<li style="justify-content:center;color:#8B95A1;font-size:11px;padding:6px">외 '+(items.length-showCount)+'개</li>';
+      var colSpan = hasPrev ? 6 : 4;
+      h += '<tr><td colspan="'+colSpan+'" style="text-align:center;color:#8B95A1;font-size:11px;padding:6px">외 '+(items.length-showCount)+'개</td></tr>';
     }
-    h += '</ul>';
   }
 
-  h += '</div></div>';
+  h += '</table></div></div></div>';
   return h;
 }
+
+function fmtFlagRate(rate){
+  if(rate == null) return '<span style="color:#8B95A1">-</span>';
+  if(rate >= 999) return '<span style="color:#10B981;font-weight:600">NEW</span>';
+  if(rate <= -999) return '<span style="color:#EF4444;font-weight:600">소멸</span>';
+  var color = rate > 0 ? '#10B981' : (rate < 0 ? '#F04452' : '#8B95A1');
+  var prefix = rate > 0 ? '+' : '';
+  return '<span style="color:'+color+';font-weight:600">'+prefix+rate+'%</span>';
+}
+
 
 async function removeFlag(skuId, skuName, brand){
   if(!confirm('['+skuId+'] '+skuName+'\n플래그를 제거하시겠습니까?')) return;
@@ -1418,7 +1488,7 @@ function recomputeCustom(brand) {
   var rising = filterSurge(bi.surgeUp || [], true);
   var falling = filterSurge(bi.surgeDown || [], false);
   var newItems = (bi.newItems || []).slice(0, Math.max(5, CTRL.topCount));
-  var flagBoxHtml = buildFlagInsight(brand, bi.topSales || []);
+  var flagBoxHtml = buildFlagInsight(brand, bi.topSales || [], bi);
 
   var cs = document.getElementById('curStart_' + brand);
   var ce = document.getElementById('curEnd_' + brand);

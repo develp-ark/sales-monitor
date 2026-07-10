@@ -1646,6 +1646,7 @@ function parseSkuRemarksUnifiedCsv(text){
 
   var excludeItems=[];
   var newItems=[];
+  var otherItems=[];
   for(var li=1;li<lines.length;li++){
     var cols=parseExcludeCsvLine(lines[li]);
     var skuId=idxSkuId>=0?String(cols[idxSkuId]||'').trim().replace(/^"|"$/g,''):'';
@@ -1660,8 +1661,21 @@ function parseSkuRemarksUnifiedCsv(text){
     else if(remarkNorm.indexOf('신규')===0)kind='new';
     if(kind==='exclude')excludeItems.push({sku_id:skuId,sku_name:skuName,brand:brand});
     else if(kind==='new')newItems.push({sku_id:skuId,sku_name:skuName,brand:brand});
+    // 제외/신규가 아닌 비고는 버리지 않고 SKU 관리 항목의 메모로 보관합니다.
+    else otherItems.push({sku_id:skuId,sku_name:skuName,brand:brand,memo:remarkNorm});
   }
-  return{excludeItems:excludeItems,newItems:newItems};
+  return{excludeItems:excludeItems,newItems:newItems,otherItems:otherItems};
+}
+
+/** otherItems를 /api/upload-sku-manage가 읽는 CSV로 직렬화 */
+function otherItemsToCsv(items){
+  function q(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }
+  var out=['브랜드,SKU ID,SKU 명,메모'];
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    out.push([q(it.brand),q(it.sku_id),q(it.sku_name),q(it.memo)].join(','));
+  }
+  return out.join('\n');
 }
 
 /** 월별 아카이브 CSV 헤더 셀 → YYYY-MM. 지원: 21.01 · 21.01월 · 21년 1월 · 2021년 1월 */
@@ -1889,6 +1903,17 @@ async function handleFiles(files){
         });
         var dnm=await rnm.json();
         totalNewManual+=(dnm.added||0);
+      }
+      if(parsed.otherItems&&parsed.otherItems.length){
+        var ofd=new FormData();
+        ofd.append('file',new Blob([otherItemsToCsv(parsed.otherItems)],{type:'text/csv'}),sf.name);
+        var rot=await fetch('/api/upload-sku-manage',{method:'POST',body:ofd});
+        var dot=await rot.json();
+        if(!rot.ok || dot.ok===false){
+          if(st) st.textContent='오류: '+sf.name+' - '+(dot.error||('HTTP '+rot.status));
+          return;
+        }
+        totalImported+=(dot.imported||0);
       }
     }catch(e){
       if(st) st.textContent='오류: '+sf.name+' - '+e.message;

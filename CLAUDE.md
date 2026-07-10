@@ -154,7 +154,7 @@ Vercel Hobby 플랜은 서버리스 함수 12개 제한이 있어, **`api/[...sl
 |---|------|------|--------|
 | 1 | monthly | 헤더에 `YY.MM` 형식 컬럼 | /api/upload-monthly |
 | 2 | **sku-manage** | 헤더에 `플래그` 또는 `flag` 포함 | /api/upload-sku-manage |
-| 3 | sku-remarks | `브랜드` + `비고`(또는 메모) + `SKU ID` 세 헤더가 모두 존재 | /api/exclude + /api/new-product-manual |
+| 3 | sku-remarks | `브랜드` + `비고`(또는 메모) + `SKU ID` 세 헤더가 모두 존재 | /api/exclude + /api/new-product-manual + /api/upload-sku-manage |
 | 4 | deprecated-new-csv | 헤더에 `신규` 포함 | **업로드하지 않고 건너뜀** (안내 메시지 표시) |
 | 5 | exclude | 4컬럼 이하 + `sku_id`/`sku id`/`sku 명` | /api/exclude |
 | 6 | sku-manage (폴백) | 헤더에 `pid`/`iid`/`vid`/`비고` 포함 | /api/upload-sku-manage |
@@ -163,6 +163,17 @@ Vercel Hobby 플랜은 서버리스 함수 12개 제한이 있어, **`api/[...sl
 | 9 | sales | 기본값 | /api/upload |
 
 **판매 CSV는 반드시 날짜 컬럼을 가집니다.** `upload.js`의 `rowFromRecord()`가 날짜 없는 행을 전부 버리므로, 날짜 없는 파일이 `sales`로 가면 0건 삽입 후 조용히 성공합니다. 7·8번 규칙이 이를 막습니다.
+
+`sku-remarks`로 분류된 파일의 `비고`는 `제외`/`신규`로 시작하면 각 목록으로 가고, **그 외 값은 `sku_manage`에 등록되며 `memo`로 저장**됩니다(`otherItems`). 플래그로 넣으려면 `비고` 대신 `플래그` 컬럼을 써야 2번 규칙을 타고 `flag`에 들어갑니다.
+
+### 5.2.1 양식 다운로드
+
+SKU 관리 탭의 버튼 두 개가 서로 다른 경로를 겨냥합니다. **한 파일에 `비고`와 `플래그`를 동시에 넣지 마세요** — 2번 규칙이 먼저 걸려 `sku-manage`로 가고, `비고=제외`가 제외 목록이 아니라 메모로 저장됩니다.
+
+| 버튼 | 파일 | 헤더 | 경로 |
+|---|---|---|---|
+| 제외/신규 양식 | `SKU_제외신규_양식.csv` | 브랜드, SKU ID, SKU 명, 비고 | sku-remarks |
+| 플래그 양식 | `SKU_플래그_양식.csv` | 브랜드, SKU ID, SKU 명, 플래그, 메모 | sku-manage |
 
 **주의**: 2번(`플래그`/`flag`) 체크는 3번(`sku-remarks`)보다 반드시 앞에 있어야 합니다. 그렇지 않으면 `비고`+`브랜드`+`SKU ID`가 모두 있는 SKU관리 CSV가 `sku-remarks`로 잘못 분류되어 데이터가 저장되지 않습니다.
 

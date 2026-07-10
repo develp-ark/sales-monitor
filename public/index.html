@@ -2103,23 +2103,38 @@ function getSkuUrl(r){
   return null;
 }
 
-/** 브랜드·SKU ID·SKU 명·비고 통합 양식 (비고: 제외 / 신규) — Excel용 UTF-8 BOM */
-function downloadSkuManageTemplate(){
-  var rows=[
-    '브랜드,SKU ID,SKU 명,비고',
-    '아리코,,샘플 행은 삭제 후 SKU ID 입력,신규',
-    '아리코,,샘플 행은 삭제 후 SKU ID 입력,제외'
-  ];
+/** Excel이 한글을 깨뜨리지 않도록 UTF-8 BOM을 붙여 내려받습니다. */
+function downloadCsvTemplate(filename, rows){
   var csv='\ufeff'+rows.join('\r\n');
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
   var url=URL.createObjectURL(blob);
   var a=document.createElement('a');
   a.href=url;
-  a.download='SKU_관리_양식.csv';
+  a.download=filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * 제외/신규 지정 양식. 비고가 제외·신규면 각 목록으로, 그 외 값은 SKU 관리 메모로 들어갑니다.
+ * 여기에 플래그 컬럼을 넣으면 안 됩니다 — detectCsvType이 sku-manage로 돌려버려 제외/신규가 무시됩니다.
+ */
+function downloadSkuRemarksTemplate(){
+  downloadCsvTemplate('SKU_제외신규_양식.csv', [
+    '브랜드,SKU ID,SKU 명,비고',
+    '아리코,,샘플 행은 삭제 후 SKU ID 입력,신규',
+    '아리코,,샘플 행은 삭제 후 SKU ID 입력,제외'
+  ]);
+}
+
+/** 플래그 등록 양식. 플래그 컬럼이 있으면 sku_manage로 직행합니다. */
+function downloadSkuFlagTemplate(){
+  downloadCsvTemplate('SKU_플래그_양식.csv', [
+    '브랜드,SKU ID,SKU 명,플래그,메모',
+    '아리코,,샘플 행은 삭제 후 SKU ID 입력,이전SKU,'
+  ]);
 }
 
 // ── SKU 관리 전역 변수 ──
@@ -2196,8 +2211,13 @@ function renderSkuManagePanel() {
 
   var h = '';
   h += '<div style="margin-bottom:20px;padding:14px 16px;background:#F8FAFC;border:1px solid #E5E8EB;border-radius:10px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">';
-  h += '<div style="font-size:13px;color:#4B5563;line-height:1.5"><strong style="color:#111">통합 SKU 관리 CSV</strong> — 열: 브랜드, SKU ID, SKU 명, 비고 · 비고에 <strong>신규</strong> 또는 <strong>제외</strong> · 메인 업로드에 넣어도 동일하게 처리됩니다.</div>';
-  h += '<button type="button" onclick="downloadSkuManageTemplate()" style="flex-shrink:0;background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer">📥 양식 다운로드 (.csv)</button>';
+  h += '<div style="font-size:13px;color:#4B5563;line-height:1.5"><strong style="color:#111">SKU 관리 CSV</strong> — 메인 업로드에 넣어도 동일하게 처리됩니다.<br>'
+    + '· <strong>제외/신규 양식</strong> — 열: 브랜드, SKU ID, SKU 명, 비고 · 비고에 <strong>신규</strong> 또는 <strong>제외</strong> (그 외 값은 메모로 저장)<br>'
+    + '· <strong>플래그 양식</strong> — 열: 브랜드, SKU ID, SKU 명, 플래그, 메모 · 플래그 상품 현황에 집계됩니다.</div>';
+  h += '<div style="flex-shrink:0;display:flex;gap:8px">';
+  h += '<button type="button" onclick="downloadSkuRemarksTemplate()" style="background:#fff;color:#1a73e8;border:1px solid #1a73e8;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">📥 제외/신규 양식</button>';
+  h += '<button type="button" onclick="downloadSkuFlagTemplate()" style="background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer">📥 플래그 양식</button>';
+  h += '</div>';
   h += '</div>';
 
   h += '<div style="background:#fff;border:1px solid #E5E8EB;border-radius:12px;padding:16px;margin-bottom:20px">';

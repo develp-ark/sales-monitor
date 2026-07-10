@@ -733,7 +733,7 @@ function renderInsight(){
       oosInTop.forEach(function(x){
         var sid = String(x.sku_id);
         var _sm = (D.skuManageMap && D.skuManageMap[sid]);
-        var _su = _sm ? getSkuUrl(_sm) : ((D.skuUrls && D.skuUrls[sid]) || '');
+        var _su = _sm ? getSkuUrl(_sm) : '';
         var nameHtml = _su
           ? '<a href="'+esc(_su)+'" target="_blank" style="color:#E53E3E;text-decoration:underline">'+esc(x.sku_name||sid)+'</a>'
           : esc(x.sku_name||sid);
@@ -968,8 +968,8 @@ function buildFlagInsight(brand, allSkuSales, bi){
     for(var i=0;i<items.length;i++){
       var s = items[i];
       var rc = i===0?'g1':i===1?'g2':i===2?'g3':'';
-      var _su = (D.skuUrls&&D.skuUrls[s.sku_id])||'';
-      if(!_su){ var _sm2 = sm[s.sku_id]; if(_sm2) _su = getSkuUrl(_sm2)||''; }
+      var _sm2 = sm[s.sku_id];
+      var _su = _sm2 ? (getSkuUrl(_sm2)||'') : '';
       var snmHtml = _su
         ? '<a href="'+esc(_su)+'" target="_blank" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline;text-underline-offset:2px">'+esc(s.sku_name)+'</a>'
         : esc(s.sku_name);
@@ -1248,7 +1248,7 @@ function mkBox(title, cls, arr, type, brand) {
     var sid = String(s.id || s.sku_id || '');
     var snm = String(s.name || s.sku_name || sid);
     var _sm = (D.skuManageMap && D.skuManageMap[sid]);
-    var _su = _sm ? getSkuUrl(_sm) : ((D.skuUrls && D.skuUrls[sid]) || '');
+    var _su = _sm ? getSkuUrl(_sm) : '';
     var snmHtml = _su
       ? '<a href="' + esc(_su) + '" target="_blank" style="color:#333;text-decoration:underline;text-underline-offset:2px">' + esc(snm) + '</a>'
       : esc(snm);
@@ -1303,7 +1303,7 @@ function mkNewItemsBox(title, arr) {
     var sid = String(s.id || s.sku_id || '');
     var snm = String(s.name || s.sku_name || sid);
     var _sm = (D.skuManageMap && D.skuManageMap[sid]);
-    var _su = _sm ? getSkuUrl(_sm) : ((D.skuUrls && D.skuUrls[sid]) || '');
+    var _su = _sm ? getSkuUrl(_sm) : '';
     var snmHtml = _su
       ? '<a href="' + esc(_su) + '" target="_blank" style="color:#333;text-decoration:underline;text-underline-offset:2px">' + esc(snm) + '</a>'
       : esc(snm);

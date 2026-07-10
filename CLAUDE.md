@@ -9,7 +9,7 @@ CSV 업로드 → DB 저장 → 대시보드 시각화 → Google Sheets 연동�
 - **URL**: https://sales-monitor-navy.vercel.app/
 - **DB**: Turso (LibSQL, SQLite 호환) — 무료 플랜 (500M rows read 제한)
 - **Google Sheet**: https://docs.google.com/spreadsheets/d/1XCIdrZuHfwoPEqF6u0bVPn4fX32YCOXCKmGUMFz4dSw/edit
-- **저장소**: https://github.com/jlee7ww/sales-monitor
+- **저장소**: https://github.com/develp-ark/sales-monitor
 
 ---
 

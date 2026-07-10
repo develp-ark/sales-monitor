@@ -158,7 +158,11 @@ Vercel Hobby 플랜은 서버리스 함수 12개 제한이 있어, **`api/[...sl
 | 4 | deprecated-new-csv | 헤더에 `신규` 포함 | **업로드하지 않고 건너뜀** (안내 메시지 표시) |
 | 5 | exclude | 4컬럼 이하 + `sku_id`/`sku id`/`sku 명` | /api/exclude |
 | 6 | sku-manage (폴백) | 헤더에 `pid`/`iid`/`vid`/`비고` 포함 | /api/upload-sku-manage |
-| 7 | sales | 기본값 | /api/upload |
+| 7 | sales | 헤더에 `날짜` 또는 `date` 존재 | /api/upload |
+| 8 | sku-manage (폴백) | 날짜는 없고 `SKU ID`만 있음 | /api/upload-sku-manage |
+| 9 | sales | 기본값 | /api/upload |
+
+**판매 CSV는 반드시 날짜 컬럼을 가집니다.** `upload.js`의 `rowFromRecord()`가 날짜 없는 행을 전부 버리므로, 날짜 없는 파일이 `sales`로 가면 0건 삽입 후 조용히 성공합니다. 7·8번 규칙이 이를 막습니다.
 
 **주의**: 2번(`플래그`/`flag`) 체크는 3번(`sku-remarks`)보다 반드시 앞에 있어야 합니다. 그렇지 않으면 `비고`+`브랜드`+`SKU ID`가 모두 있는 SKU관리 CSV가 `sku-remarks`로 잘못 분류되어 데이터가 저장되지 않습니다.
 
@@ -271,7 +275,9 @@ SKU 관리 CSV 업로드. CSV 헤더 매핑:
 | pid / PID / 상품ID | pid |
 | url / URL / 상품URL | product_url |
 
-UPSERT 방식(`ON CONFLICT(sku_id)`): 기존 SKU는 비어있지 않은 값만 업데이트.
+헤더는 `normKey()`로 정규화해 매칭합니다(대소문자, 앞뒤/연속 공백, BOM, 비단절 공백 무시). 컬럼명 자체가 다르면(`상품번호` 등) 저장하지 않고 응답에 `warning`과 인식된 `headers`를 실어 보냅니다.
+
+UPSERT 방식(`ON CONFLICT(sku_id)`): 기존 SKU는 비어있지 않은 값만 업데이트. 200건씩 `db.batch()`로 나눠 실행합니다(행마다 왕복하면 수백 건에서 60초 제한에 걸림).
 `product_url`이 있고 pid/iid/vid가 비어 있으면 URL에서 정규식으로 추출합니다.
 
 ### 6.5 POST /api/flag
@@ -358,6 +364,8 @@ new google.auth.JWT({ email, key, scopes: [...] })
 
 ## 11. 최근 변경 이력
 
+- SKU 관리 CSV 업로드가 조용히 0건 처리되던 문제 수정 (헤더 정규화 + 실패를 화면에 노출)
+- 날짜 없는 CSV가 판매 CSV로 오분류되지 않도록 `detectCsvType` 규칙 추가
 - `sku_manage` 스키마를 `lib/schema.js`로 일원화 (부트스트랩 순서 의존 제거)
 - `test-sheets.js`의 JWT positional 인자 버그 수정
 - 존재하지 않던 `sku_url_map` 조회 및 응답의 `skuUrls` 제거

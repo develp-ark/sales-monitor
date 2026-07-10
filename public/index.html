@@ -1711,9 +1711,17 @@ function detectCsvType(text){
   }
 
   if(firstLine.indexOf('pid')!==-1 || firstLine.indexOf('iid')!==-1 || firstLine.indexOf('vid')!==-1
-    || firstLine.indexOf('비고')!==-1 || firstLine.indexOf('flag')!==-1){
+    || firstLine.indexOf('비고')!==-1){
     return 'sku-manage';
   }
+
+  // 판매 CSV는 반드시 날짜 컬럼을 갖습니다(upload.js가 날짜 없는 행을 전부 버림).
+  // 날짜가 없는데 SKU ID만 있는 파일은 SKU 관리 목록이므로 sales로 흘려보내지 않습니다.
+  var hasDate = cols.indexOf('날짜')!==-1 || cols.indexOf('date')!==-1;
+  if(hasDate) return 'sales';
+  var hasSkuId = firstLine.indexOf('sku id')!==-1 || firstLine.indexOf('sku_id')!==-1 || firstLine.indexOf('skuid')!==-1;
+  if(hasSkuId) return 'sku-manage';
+
   return 'sales';
 }
 
@@ -1841,6 +1849,14 @@ async function handleFiles(files){
       fd.append('file',blob,f.name);
       var r=await fetch('/api/upload-sku-manage',{method:'POST',body:fd});
       var d=await r.json();
+      if(!r.ok || d.ok===false){
+        if(st) st.textContent='오류: '+f.name+' - '+(d.error||('HTTP '+r.status));
+        return;
+      }
+      if(d.warning){
+        if(st) st.textContent='오류: '+f.name+' - '+d.warning+' 인식된 헤더: '+(d.headers||[]).join(', ');
+        return;
+      }
       totalImported+=(d.imported||0);
     }catch(e){
       if(st) st.textContent='오류: '+f.name+' - '+e.message;

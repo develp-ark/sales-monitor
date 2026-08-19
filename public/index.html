@@ -1762,6 +1762,8 @@ async function handleFiles(files){
   var skuRemarksFiles=[];
   var deprecatedNewCsv=[];
   var monthlyFiles=[];
+  var uploadErrors=[];
+  var syncErrors=[];
 
   for(var i=0;i<total;i++){
     var text=await readFileText(files[i]);
@@ -1806,10 +1808,11 @@ async function handleFiles(files){
           var r=await fetch(url,{method:'POST',body:fd});
           var d=await r.json();
           totalRows+=(d.rows||0);
-          if(d.fileBrand) syncBrands[d.fileBrand]=true;
+          if(d.brands&&d.brands.length){ for(var sbi=0;sbi<d.brands.length;sbi++) syncBrands[d.brands[sbi]]=true; }
+          else if(d.fileBrand){ syncBrands[d.fileBrand]=true; }
+          else if(d.rows){ uploadErrors.push(f.name+': 브랜드를 판별하지 못해 시트 동기화에서 제외됨'); }
         }catch(e){
-          if(st) st.textContent='오류: '+f.name+' 청크'+(c+1)+' - '+e.message;
-          return;
+          uploadErrors.push(f.name+' 청크'+(c+1)+': '+e.message);
         }
       }
     }else{
@@ -1823,10 +1826,11 @@ async function handleFiles(files){
         var r=await fetch(url,{method:'POST',body:fd});
         var d=await r.json();
         totalRows+=(d.rows||0);
-        if(d.fileBrand) syncBrands[d.fileBrand]=true;
+        if(d.brands&&d.brands.length){ for(var sbi=0;sbi<d.brands.length;sbi++) syncBrands[d.brands[sbi]]=true; }
+        else if(d.fileBrand){ syncBrands[d.fileBrand]=true; }
+        else if(d.rows){ uploadErrors.push(f.name+': 브랜드를 판별하지 못해 시트 동기화에서 제외됨'); }
       }catch(e){
-        if(st) st.textContent='오류: '+f.name+' - '+e.message;
-        return;
+        uploadErrors.push(f.name+': '+e.message);
       }
     }
   }
@@ -1843,8 +1847,7 @@ async function handleFiles(files){
       var d=await r.json();
       totalImported+=(d.imported||0);
     }catch(e){
-      if(st) st.textContent='오류: '+f.name+' - '+e.message;
-      return;
+      uploadErrors.push(f.name+': '+e.message);
     }
   }
 
@@ -1875,8 +1878,7 @@ async function handleFiles(files){
         totalNewManual+=(dnm.added||0);
       }
     }catch(e){
-      if(st) st.textContent='오류: '+sf.name+' - '+e.message;
-      return;
+      uploadErrors.push(sf.name+': '+e.message);
     }
   }
 
@@ -1924,8 +1926,7 @@ async function handleFiles(files){
         totalExcluded+=(d.added||0);
       }
     }catch(e){
-      if(st) st.textContent='오류: '+f.name+' - '+e.message;
-      return;
+      uploadErrors.push(f.name+': '+e.message);
     }
   }
 
@@ -1983,12 +1984,11 @@ async function handleFiles(files){
       if(d.ok){
         totalMonthly+=(d.rows||0);
       }else{
-        if(st) st.textContent='오류: '+f.name+' - '+(d.error||'');
-        return;
+        uploadErrors.push(f.name+': '+(d.error||'서버 오류'));
+        continue;
       }
     }catch(e){
-      if(st) st.textContent='오류: '+f.name+' - '+e.message;
-      return;
+      uploadErrors.push(f.name+': '+e.message);
     }
   }
 
@@ -1996,14 +1996,24 @@ async function handleFiles(files){
   for(var bi=0;bi<brandList.length;bi++){
     var syncBrand=brandList[bi];
     if(st) st.textContent='DB 저장 완료 → '+syncBrand+' 시트 동기화 중... ('+(bi+1)+'/'+brandList.length+')';
-    try{
-      var syncR1=await fetch('/api/upload?syncOnly=1',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({brand:syncBrand,type:'brand'})
-      });
-      var syncD1=await syncR1.json();
-    }catch(e){ console.error('brand sync error',e); }
+    var syncOk=false,syncMsg='';
+    for(var attempt=0;attempt<2&&!syncOk;attempt++){
+      if(attempt>0&&st) st.textContent=syncBrand+' 시트 동기화 재시도 중...';
+      try{
+        var syncR1=await fetch('/api/upload?syncOnly=1',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({brand:syncBrand,type:'brand'})
+        });
+        var syncD1=await syncR1.json().catch(function(){return null;});
+        if(syncR1.ok&&syncD1&&syncD1.ok) syncOk=true;
+        else syncMsg=(syncD1&&syncD1.error)||('HTTP '+syncR1.status);
+      }catch(e){ syncMsg=e.message; }
+    }
+    if(!syncOk){
+      syncErrors.push(syncBrand+'('+syncMsg+')');
+      console.error('brand sync failed',syncBrand,syncMsg);
+    }
   }
 
   if(brandList.length>0){
@@ -2014,8 +2024,9 @@ async function handleFiles(files){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({type:'trend'})
       });
-      var syncD2=await syncR2.json();
-    }catch(e){ console.error('trend sync error',e); }
+      var syncD2=await syncR2.json().catch(function(){return null;});
+      if(!syncR2.ok||!syncD2||!syncD2.ok) syncErrors.push('daily_trend('+((syncD2&&syncD2.error)||('HTTP '+syncR2.status))+')');
+    }catch(e){ syncErrors.push('daily_trend('+e.message+')'); console.error('trend sync error',e); }
   }
 
   var msg='완료: ';
@@ -2038,7 +2049,16 @@ async function handleFiles(files){
     if(msg.length>6) msg+=' · ';
     msg+='구식 «신규지정» 헤더 파일 '+deprecatedNewCsv.length+'개 건너뜀(브랜드·SKU ID·SKU 명·비고 양식 사용)';
   }
-  if(st) st.textContent=msg;
+  if(uploadErrors.length){
+    msg+=' · [실패] 파일 처리 오류 '+uploadErrors.length+'건: '+uploadErrors.join(' / ');
+  }
+  if(syncErrors.length){
+    msg+=' · [경고] 구글시트 동기화 실패: '+syncErrors.join(' / ')+' → 해당 시트는 갱신되지 않았습니다. 다시 업로드해 주세요.';
+  }
+  if(st){
+    st.style.color=(uploadErrors.length||syncErrors.length)?'#c0392b':'';
+    st.textContent=msg;
+  }
   var didNewManualUpload = totalNewManual > 0;
   setTimeout(async function(){
     await loadAll(true);

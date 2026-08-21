@@ -424,8 +424,11 @@ function jsonFromResponse(resp, body, label){
   }
 }
 
+var _forceInsight = false;
+
 async function loadAll(purge){
   setLoading(true);
+  if (purge) _forceInsight = true;
   try {
     var r = await fetch('/api/dashboard' + (purge ? '?purge=1' : ''));
     var body = await r.text();
@@ -1465,7 +1468,9 @@ async function fetchInsight() {
   if (!cs || !ce || !ps || !pe) return;
 
   var url = '/api/insight?curStart=' + encodeURIComponent(cs.value) + '&curEnd=' + encodeURIComponent(ce.value)
-    + '&prevStart=' + encodeURIComponent(ps.value) + '&prevEnd=' + encodeURIComponent(pe.value);
+    + '&prevStart=' + encodeURIComponent(ps.value) + '&prevEnd=' + encodeURIComponent(pe.value)
+    + (_forceInsight ? '&purge=1' : '');
+  _forceInsight = false;
 
   setInsightLoading(true);
   try {

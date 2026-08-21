@@ -2687,7 +2687,7 @@ async function exportXlsx() {
   btn.disabled = true;
   btn.textContent = '⏳ 데이터 로딩...';
   try {
-    var res = await fetch('/api/export');
+    var res = await fetch('/api/export?v=2');
     var data = await res.json();
     if (!data.ok) { alert('오류: ' + (data.error || 'unknown')); return; }
 
@@ -2711,23 +2711,42 @@ async function exportXlsx() {
       '건우코리아': { header: 'EF4444', light: 'FFF0EE' }
     };
 
+    /* 서버(v2)는 매출 0 행과 날짜마다 반복되던 sku_name 을 빼고 보낸다.
+       빠진 축(날짜)과 SKU 메타(이름/재고/상태)는 별도 배열로 오므로 먼저 세운 뒤 값을 채운다.
+       세 배열 모두 서버에서 기존과 동일한 규칙(첫 행 이름 / 마지막 행 재고·상태)으로 만든다. */
+    var metaByBrand = {}, datesByBrand = {};
+    (data.skuMeta || []).forEach(function(m) {
+      (metaByBrand[m.brand] = metaByBrand[m.brand] || []).push(m);
+    });
+    (data.dates || []).forEach(function(d) {
+      (datesByBrand[d.brand] = datesByBrand[d.brand] || []).push(d.date);
+    });
+    var namesByBrand = {};
+    (data.monthlyNames || []).forEach(function(n) {
+      (namesByBrand[n.brand] = namesByBrand[n.brand] || []).push(n);
+    });
+    var monthsByBrand = {};
+    (data.monthlyMonths || []).forEach(function(x) {
+      (monthsByBrand[x.brand] = monthsByBrand[x.brand] || []).push(x.month);
+    });
+
     brands.forEach(function(brand) {
       var brandRows = data.rows.filter(function(r) { return r.brand === brand; });
-      if (!brandRows.length) return;
+      var brandMeta = metaByBrand[brand] || [];
+      if (!brandMeta.length) return;
 
       var bc = brandColors[brand] || { header: '4472C4', light: 'D6E4F0' };
 
       // SKU별 데이터 정리
       var skuMap = {};
       var allDates = {};
+      brandMeta.forEach(function(m) {
+        skuMap[m.sku_id] = { name: m.sku_name, stock: m.stock, status: m.status, dates: {} };
+      });
+      (datesByBrand[brand] || []).forEach(function(d) { allDates[d] = true; });
       brandRows.forEach(function(r) {
-        if (!skuMap[r.sku_id]) {
-          skuMap[r.sku_id] = { name: r.sku_name, stock: r.stock, status: r.status, dates: {} };
-        }
+        if (!skuMap[r.sku_id]) skuMap[r.sku_id] = { name: '', stock: null, status: null, dates: {} };
         skuMap[r.sku_id].dates[r.date] = Number(r.sales) || 0;
-        skuMap[r.sku_id].stock = r.stock;
-        skuMap[r.sku_id].status = r.status;
-        allDates[r.date] = true;
       });
 
       var datesSorted = Object.keys(allDates).sort();
@@ -2742,26 +2761,23 @@ async function exportXlsx() {
       var months = Object.keys(monthMap).sort();
 
       // === 월별 아카이브 데이터 병합 ===
+      // 아카이브에만 있는 SKU 행과 월 컬럼이 사라지지 않도록 이름/월 축을 먼저 세운다.
       var monthlyArchive = {};
+      (namesByBrand[brand] || []).forEach(function(n) {
+        if (!skuMap[n.sku_id]) {
+          skuMap[n.sku_id] = { name: n.sku_name || '', stock: '', status: '', dates: {} };
+        }
+      });
       if (data.monthly && data.monthly.length) {
         data.monthly.forEach(function(mr) {
           if (mr.brand !== brand) return;
           if (!monthlyArchive[mr.sku_id]) monthlyArchive[mr.sku_id] = {};
           monthlyArchive[mr.sku_id][mr.month] = Number(mr.sales) || 0;
-          // SKU 정보가 없으면 추가
-          if (!skuMap[mr.sku_id]) {
-            skuMap[mr.sku_id] = { name: mr.sku_name || '', stock: '', status: '', dates: {} };
-          }
         });
       }
 
-      // 아카이브에만 있는 월을 months에 추가
       var archiveMonths = {};
-      Object.keys(monthlyArchive).forEach(function(sid) {
-        Object.keys(monthlyArchive[sid]).forEach(function(m) {
-          archiveMonths[m] = true;
-        });
-      });
+      (monthsByBrand[brand] || []).forEach(function(m) { archiveMonths[m] = true; });
       Object.keys(archiveMonths).forEach(function(m) {
         if (months.indexOf(m) === -1) {
           months.push(m);

@@ -1792,7 +1792,20 @@ async function handleFiles(files){
   var totalImported=0;
   var totalMonthly=0;
   var step=0;
+  /* 시트 동기화에 넘길 브랜드별 날짜 범위. 범위를 모르면 null 로 두어 전체 동기화시킨다. */
   var syncBrands={};
+  function noteSyncBrands(acc,d){
+    var bd=d.brandDates||null;
+    var list=(d.brands&&d.brands.length)?d.brands:(d.fileBrand?[d.fileBrand]:[]);
+    for(var i=0;i<list.length;i++){
+      var b=list[i], r=bd&&bd[b];
+      if(!r||!r.from||!r.to){ acc[b]=null; continue; }
+      if(!(b in acc)){ acc[b]={from:r.from,to:r.to}; continue; }
+      if(acc[b]===null) continue;
+      if(r.from<acc[b].from) acc[b].from=r.from;
+      if(r.to>acc[b].to) acc[b].to=r.to;
+    }
+  }
 
   for(var i=0;i<salesFiles.length;i++){
     var f=salesFiles[i];
@@ -1813,8 +1826,7 @@ async function handleFiles(files){
           var r=await fetch(url,{method:'POST',body:fd});
           var d=await r.json();
           totalRows+=(d.rows||0);
-          if(d.brands&&d.brands.length){ for(var sbi=0;sbi<d.brands.length;sbi++) syncBrands[d.brands[sbi]]=true; }
-          else if(d.fileBrand){ syncBrands[d.fileBrand]=true; }
+          if((d.brands&&d.brands.length)||d.fileBrand){ noteSyncBrands(syncBrands,d); }
           else if(d.rows){ uploadErrors.push(f.name+': 브랜드를 판별하지 못해 시트 동기화에서 제외됨'); }
         }catch(e){
           uploadErrors.push(f.name+' 청크'+(c+1)+': '+e.message);
@@ -1831,8 +1843,7 @@ async function handleFiles(files){
         var r=await fetch(url,{method:'POST',body:fd});
         var d=await r.json();
         totalRows+=(d.rows||0);
-        if(d.brands&&d.brands.length){ for(var sbi=0;sbi<d.brands.length;sbi++) syncBrands[d.brands[sbi]]=true; }
-        else if(d.fileBrand){ syncBrands[d.fileBrand]=true; }
+        if((d.brands&&d.brands.length)||d.fileBrand){ noteSyncBrands(syncBrands,d); }
         else if(d.rows){ uploadErrors.push(f.name+': 브랜드를 판별하지 못해 시트 동기화에서 제외됨'); }
       }catch(e){
         uploadErrors.push(f.name+': '+e.message);
@@ -2005,10 +2016,14 @@ async function handleFiles(files){
     for(var attempt=0;attempt<2&&!syncOk;attempt++){
       if(attempt>0&&st) st.textContent=syncBrand+' 시트 동기화 재시도 중...';
       try{
+        /* 올라온 날짜만 넘긴다. 범위를 모르면 서버가 전체 이력으로 처리한다. */
+        var rng=syncBrands[syncBrand];
+        var syncBody={brand:syncBrand,type:'brand'};
+        if(rng&&rng.from&&rng.to){ syncBody.from=rng.from; syncBody.to=rng.to; }
         var syncR1=await fetch('/api/upload?syncOnly=1',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({brand:syncBrand,type:'brand'})
+          body:JSON.stringify(syncBody)
         });
         var syncD1=await syncR1.json().catch(function(){return null;});
         if(syncR1.ok&&syncD1&&syncD1.ok) syncOk=true;
